@@ -1,6 +1,6 @@
 <?php
 /**
- * AdMaster Pro v3.1 - Teljes Kampány Kezelő
+ * AdMaster Pro v3.3 - Teljes Kampány Kezelő
  * 
  * Funkciók:
  * - Wizard alapú kampány generálás
@@ -8,6 +8,10 @@
  * - Bevált headline bank
  * - Stratégiai javaslatok
  * - Extra figyelemfelkeltő szövegek
+ * - Versenytárs elemzés
+ * - Landing page CRO audit
+ * - PMax asset generálás
+ * - Dinamikus iparág létrehozás
  */
 
 require_once __DIR__ . '/config.php';
@@ -17,6 +21,14 @@ require_once __DIR__ . '/includes/ClientManager.php';
 Security::initSession();
 
 $industries = require __DIR__ . '/data/industries.php';
+
+// Custom iparágak betöltése és összefésülése
+$customFile = __DIR__ . '/data/custom_industries.json';
+if (file_exists($customFile)) {
+    $customIndustries = json_decode(file_get_contents($customFile), true) ?: [];
+    $industries = array_merge($industries, $customIndustries);
+}
+
 require_once __DIR__ . '/data/strategies.php';
 
 $clientManager = new ClientManager();
@@ -82,7 +94,11 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                 <nav class="main-nav">
                     <a href="?tab=wizard" class="nav-link <?= $tab === 'wizard' ? 'active' : '' ?>">🚀 Kampány</a>
                     <a href="?tab=clients" class="nav-link <?= $tab === 'clients' ? 'active' : '' ?>">🏢 Ügyfelek</a>
-                    <a href="?tab=headlines" class="nav-link <?= $tab === 'headlines' ? 'active' : '' ?>">⭐ Szövegbank</a>
+                    <a href="?tab=keywords" class="nav-link <?= $tab === 'keywords' ? 'active' : '' ?>">🔤 Kulcsszavak</a>
+                    <a href="?tab=competitors" class="nav-link <?= $tab === 'competitors' ? 'active' : '' ?>">🔍 Versenytárs</a>
+                    <a href="?tab=landing" class="nav-link <?= $tab === 'landing' ? 'active' : '' ?>">🌐 Landing</a>
+                    <a href="?tab=pmax" class="nav-link <?= $tab === 'pmax' ? 'active' : '' ?>">📦 PMax</a>
+                    <a href="?tab=industries" class="nav-link <?= $tab === 'industries' ? 'active' : '' ?>">🏭 Iparágak</a>
                     <a href="?tab=strategies" class="nav-link <?= $tab === 'strategies' ? 'active' : '' ?>">🧠 Stratégiák</a>
                 </nav>
                 <div class="header-right">
@@ -558,6 +574,615 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
         </div>
     </div>
 
+<?php elseif ($tab === 'keywords'): ?>
+<!-- ==================== KULCSSZAVAK TAB ==================== -->
+
+    <?php 
+    $kwManager = new ClientManager();
+    $kwBank = $kwManager->getKeywordsBank();
+    ?>
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>🔤 Kulcsszó Kezelés</h2>
+        </div>
+        
+        <div class="keywords-layout">
+            <!-- Bal oldal: Pozitív kulcsszavak -->
+            <div class="keyword-column">
+                <div class="card">
+                    <h3 class="card-title">✅ Működő Kulcsszavak</h3>
+                    <p class="help-text">Add hozzá a jól teljesítő kulcsszavaidat. Ezeket használjuk a generálásnál.</p>
+                    
+                    <form method="POST" action="api.php" class="keyword-form">
+                        <?= Security::csrfField() ?>
+                        <input type="hidden" name="action" value="save_keywords">
+                        <input type="hidden" name="type" value="positive">
+                        
+                        <div class="form-group">
+                            <label>Kulcsszavak beillesztése (soronként egy)</label>
+                            <textarea name="keywords" class="form-control" rows="8" placeholder="duguláselhárítás budapest&#10;wc dugulás&#10;lefolyó tisztítás&#10;csatorna dugulás"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Iparág</label>
+                            <select name="industry" class="form-control">
+                                <option value="">-- Általános --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">💾 Mentés</button>
+                    </form>
+                </div>
+                
+                <!-- Mentett pozitív kulcsszavak -->
+                <?php if (!empty($kwBank['positive'])): ?>
+                <div class="card">
+                    <h3 class="card-title">📋 Mentett Kulcsszavak (<?= count($kwBank['positive']) ?>)</h3>
+                    <div class="keywords-saved">
+                        <?php 
+                        $grouped = [];
+                        foreach ($kwBank['positive'] as $kw) {
+                            $ind = $kw['industry'] ?: 'general';
+                            $grouped[$ind][] = $kw;
+                        }
+                        foreach ($grouped as $indKey => $kws): 
+                            $indName = $indKey === 'general' ? 'Általános' : ($industries[$indKey]['name'] ?? $indKey);
+                        ?>
+                        <div class="keyword-group">
+                            <h4><?= $indKey !== 'general' ? ($industries[$indKey]['icon'] ?? '') : '📁' ?> <?= $indName ?></h4>
+                            <div class="keyword-tags">
+                                <?php foreach ($kws as $kw): ?>
+                                <span class="tag tag-green" title="<?= htmlspecialchars($kw['keyword']) ?>">
+                                    <?= htmlspecialchars($kw['keyword']) ?>
+                                    <button type="button" class="tag-remove" onclick="deleteKeyword('<?= $kw['id'] ?>', 'positive')">×</button>
+                                </span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="copyAllKeywords('positive')" style="margin-top:12px">📋 Mind másolása</button>
+                </div>
+                <?php endif; ?>
+            </div>
+            
+            <!-- Jobb oldal: Negatív kulcsszavak -->
+            <div class="keyword-column">
+                <div class="card card-danger">
+                    <h3 class="card-title">🚫 Negatív Kulcsszavak</h3>
+                    <p class="help-text">Ezeket mindig kizárjuk a kampányokból. AI elemzi és figyelmeztet a hibákra.</p>
+                    
+                    <form method="POST" action="api.php" class="keyword-form">
+                        <?= Security::csrfField() ?>
+                        <input type="hidden" name="action" value="save_keywords">
+                        <input type="hidden" name="type" value="negative">
+                        
+                        <div class="form-group">
+                            <label>Negatív kulcsszavak beillesztése</label>
+                            <textarea name="keywords" class="form-control" rows="8" placeholder="ingyen&#10;állás&#10;munka&#10;házilag&#10;youtube"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Iparág</label>
+                            <select name="industry" class="form-control">
+                                <option value="">-- Általános (minden kampány) --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-danger">🚫 Mentés</button>
+                    </form>
+                </div>
+                
+                <!-- Mentett negatív kulcsszavak -->
+                <?php if (!empty($kwBank['negative'])): ?>
+                <div class="card">
+                    <h3 class="card-title">🚫 Mentett Negatívok (<?= count($kwBank['negative']) ?>)</h3>
+                    <div class="keywords-saved">
+                        <?php 
+                        $grouped = [];
+                        foreach ($kwBank['negative'] as $kw) {
+                            $ind = $kw['industry'] ?: 'general';
+                            $grouped[$ind][] = $kw;
+                        }
+                        foreach ($grouped as $indKey => $kws): 
+                            $indName = $indKey === 'general' ? 'Általános' : ($industries[$indKey]['name'] ?? $indKey);
+                        ?>
+                        <div class="keyword-group">
+                            <h4><?= $indKey !== 'general' ? ($industries[$indKey]['icon'] ?? '') : '🌐' ?> <?= $indName ?></h4>
+                            <div class="keyword-tags">
+                                <?php foreach ($kws as $kw): ?>
+                                <span class="tag tag-red">
+                                    <?= htmlspecialchars($kw['keyword']) ?>
+                                    <button type="button" class="tag-remove" onclick="deleteKeyword('<?= $kw['id'] ?>', 'negative')">×</button>
+                                </span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="copyAllKeywords('negative')" style="margin-top:12px">📋 Mind másolása</button>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <!-- Kulcsszó Elemző -->
+        <div class="card" style="margin-top: 24px;">
+            <h3 class="card-title">🔍 Kulcsszó Elemző (AI)</h3>
+            <p class="help-text">Illeszd be a kulcsszavaidat és az AI elemzi, javaslatokat ad, figyelmeztet a problémákra.</p>
+            
+            <form method="POST" action="api.php" id="analyzeKeywordsForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="analyze_keywords">
+                
+                <div class="form-columns">
+                    <div class="form-group">
+                        <label>Kulcsszavak elemzésre</label>
+                        <textarea name="keywords" class="form-control" rows="6" placeholder="Illeszd be a kulcsszavaidat..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Iparág (pontosabb elemzéshez)</label>
+                        <select name="industry" class="form-control">
+                            <option value="">-- Válassz --</option>
+                            <?php foreach ($industries as $key => $ind): ?>
+                            <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div style="margin-top: 16px;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="check_negatives" value="1" checked>
+                                <span>Ellenőrizze a negatívokkal való ütközést</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="suggest_variations" value="1" checked>
+                                <span>Javasoljon variációkat</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="find_problems" value="1" checked>
+                                <span>Keressen problémás kulcsszavakat</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" id="analyzeKwBtn">🔍 Elemzés Indítása</button>
+            </form>
+            
+            <div id="keywordAnalysisResults"></div>
+        </div>
+        
+        <!-- Kulcsszó Klaszterezés -->
+        <div class="card" style="margin-top: 24px;">
+            <h3 class="card-title">📊 Kulcsszó Klaszterezés (Ad Group Javaslat)</h3>
+            <p class="help-text">Illeszd be a kulcsszavaidat és az AI logikai csoportokba (Ad Group-okba) rendezi őket</p>
+            
+            <form method="POST" action="api.php" id="clusterKeywordsForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="cluster_keywords">
+                
+                <div class="form-columns">
+                    <div class="form-group">
+                        <label>Kulcsszavak klaszterezéshez (soronként egy)</label>
+                        <textarea name="keywords" class="form-control" rows="10" placeholder="duguláselhárítás budapest&#10;wc dugulás ár&#10;sürgős duguláselhárító&#10;olcsó vízszerelő&#10;éjszakai vízszerelés&#10;csőtörés javítás&#10;..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Beállítások</label>
+                        <div class="form-group">
+                            <label>Iparág</label>
+                            <select name="industry" class="form-control">
+                                <option value="">-- Válassz (pontosabb csoportok) --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Csoportok száma (kb.)</label>
+                            <select name="num_groups" class="form-control">
+                                <option value="auto">Automatikus (AI dönt)</option>
+                                <option value="3">3-5 csoport</option>
+                                <option value="5">5-8 csoport</option>
+                                <option value="10">8-12 csoport</option>
+                            </select>
+                        </div>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="suggest_names" value="1" checked>
+                            <span>Javasoljon Ad Group neveket</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="suggest_headlines" value="1" checked>
+                            <span>Javasoljon headline-t csoportonként</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" id="clusterKwBtn">📊 Klaszterezés</button>
+            </form>
+            
+            <div id="clusterResults"></div>
+        </div>
+        
+        <!-- Univerzális Negatív Listák -->
+        <div class="card" style="margin-top: 24px;">
+            <h3 class="card-title">📦 Univerzális Negatív Listák</h3>
+            <p class="help-text">Előre összeállított listák - egy kattintással hozzáadhatod</p>
+            
+            <?php 
+            $universalNegatives = [
+                'diy' => ['name' => '🔧 DIY / Csináld magad', 'keywords' => ['házilag', 'otthon', 'magam', 'hogyan', 'videó', 'youtube', 'tutorial', 'útmutató', 'tippek', 'trükkök', 'lépésről lépésre']],
+                'free' => ['name' => '🆓 Ingyen / Olcsó', 'keywords' => ['ingyen', 'ingyenes', 'olcsó', 'legolcsóbb', 'akció', 'kedvezmény', 'használt', 'bontott', 'vatera', 'jófogás', 'marketplace']],
+                'job' => ['name' => '💼 Állás / Karrier', 'keywords' => ['állás', 'munka', 'fizetés', 'tanfolyam', 'képzés', 'oktatás', 'gyakornok', 'diákmunka', 'cv', 'önéletrajz']],
+                'info' => ['name' => '📚 Információ kereső', 'keywords' => ['wiki', 'wikipédia', 'mi az', 'jelentése', 'fórum', 'vélemény', 'tapasztalat', 'blog', 'cikk', 'teszt']]
+            ];
+            ?>
+            
+            <div class="universal-lists">
+                <?php foreach ($universalNegatives as $key => $list): ?>
+                <div class="universal-list-item">
+                    <div class="list-header">
+                        <span class="list-name"><?= $list['name'] ?></span>
+                        <span class="list-count"><?= count($list['keywords']) ?> szó</span>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="addUniversalList('<?= $key ?>')">+ Hozzáadás</button>
+                    </div>
+                    <div class="list-preview">
+                        <?php foreach (array_slice($list['keywords'], 0, 6) as $kw): ?>
+                        <span class="tag tag-red small"><?= $kw ?></span>
+                        <?php endforeach; ?>
+                        <?php if (count($list['keywords']) > 6): ?>
+                        <span class="tag small">+<?= count($list['keywords']) - 6 ?> más</span>
+                        <?php endif; ?>
+                    </div>
+                    <textarea class="hidden" id="universal-<?= $key ?>"><?= implode("\n", $list['keywords']) ?></textarea>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
+
+<?php elseif ($tab === 'competitors'): ?>
+<!-- ==================== VERSENYTÁRS FIGYELŐ TAB ==================== -->
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>🔍 Versenytárs Figyelő</h2>
+        </div>
+        
+        <div class="card">
+            <h3 class="card-title">🎯 Hirdetés Elemzés</h3>
+            <p class="help-text">Add meg a kulcsszót és elemezzük a versenytársak hirdetéseit</p>
+            
+            <form method="POST" action="api.php" id="competitorForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="analyze_competitors">
+                
+                <div class="form-columns">
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Keresési kulcsszó *</label>
+                            <input type="text" name="keyword" class="form-control" placeholder="pl. duguláselhárítás budapest" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Iparág (pontosabb elemzéshez)</label>
+                            <select name="industry" class="form-control">
+                                <option value="">-- Válassz --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Saját hirdetésed (összehasonlításhoz)</label>
+                            <textarea name="own_ad" class="form-control" rows="4" placeholder="Headline 1&#10;Headline 2&#10;Description..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" id="competitorBtn">🔍 Versenytársak Elemzése</button>
+                
+                <?php if (empty(SERPAPI_KEY)): ?>
+                <p class="help-text" style="margin-top:12px">⚠️ SerpApi kulcs nincs beállítva - kézi bevitel módban működik</p>
+                <?php endif; ?>
+            </form>
+        </div>
+        
+        <!-- Kézi bevitel ha nincs API -->
+        <div class="card" style="margin-top:20px">
+            <h3 class="card-title">📋 Kézi Hirdetés Elemzés</h3>
+            <p class="help-text">Másold be a versenytársak hirdetéseit a Google keresőből</p>
+            
+            <form method="POST" action="api.php" id="manualCompetitorForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="analyze_competitor_manual">
+                
+                <div class="form-group">
+                    <label>Versenytárs hirdetések (illeszd be)</label>
+                    <textarea name="competitor_ads" class="form-control" rows="8" placeholder="Hirdetés 1:
+Headline | Headline 2
+Description szöveg...
+
+Hirdetés 2:
+..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Saját hirdetésed</label>
+                    <textarea name="own_ad" class="form-control" rows="4" placeholder="A te hirdetésed szövege..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Iparág</label>
+                    <select name="industry" class="form-control">
+                        <option value="">-- Válassz --</option>
+                        <?php foreach ($industries as $key => $ind): ?>
+                        <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">🧠 AI Elemzés</button>
+            </form>
+        </div>
+        
+        <div id="competitorResults"></div>
+    </section>
+
+<?php elseif ($tab === 'landing'): ?>
+<!-- ==================== LANDING PAGE TAB ==================== -->
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>🌐 Landing Page Elemző & Szövegíró</h2>
+        </div>
+        
+        <div class="card">
+            <h3 class="card-title">🔍 Technikai + CRO Audit</h3>
+            <p class="help-text">Elemezzük a landing page-et technikailag ÉS tartalmilag, konkrét átírási javaslatokkal</p>
+            
+            <form method="POST" action="api.php" id="landingForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="analyze_landing_full">
+                
+                <div class="form-columns">
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Landing Page URL *</label>
+                            <input type="url" name="url" class="form-control" placeholder="https://..." required>
+                        </div>
+                        <div class="form-group">
+                            <label>Fő kulcsszó</label>
+                            <input type="text" name="keyword" class="form-control" placeholder="pl. duguláselhárítás budapest">
+                        </div>
+                        <div class="form-group">
+                            <label>Iparág</label>
+                            <select name="industry" class="form-control">
+                                <option value="">-- Válassz --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Mit elemezzünk?</label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="check_technical" value="1" checked>
+                                <span>⚙️ Technikai (H1, meta, sebesség, mobil)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="check_cro" value="1" checked>
+                                <span>📈 CRO (szövegek, CTA-k, trust elemek)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="check_seo" value="1" checked>
+                                <span>🔍 SEO (kulcsszó sűrűség, struktúra)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="rewrite_content" value="1" checked>
+                                <span>✍️ Szöveg átírási javaslatok</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-lg" id="landingBtn">🔍 Teljes Elemzés Indítása</button>
+            </form>
+        </div>
+        
+        <div id="landingResults"></div>
+    </section>
+
+<?php elseif ($tab === 'pmax'): ?>
+<!-- ==================== PMAX TAB ==================== -->
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>📦 Performance Max Asset Generátor</h2>
+        </div>
+        
+        <div class="alert alert-info">
+            ℹ️ A PMax kampányokhoz szöveg ÉS kép assetek kellenek. Mi generáljuk a szövegeket, a képekhez javaslatokat adunk.
+        </div>
+        
+        <div class="card">
+            <h3 class="card-title">🎯 Asset Group Generálás</h3>
+            
+            <form method="POST" action="api.php" id="pmaxForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="generate_pmax">
+                
+                <div class="form-columns">
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Cégnév *</label>
+                            <input type="text" name="company_name" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Iparág *</label>
+                            <select name="industry" class="form-control" required>
+                                <option value="">-- Válassz --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Weboldal URL</label>
+                            <input type="url" name="website" class="form-control" placeholder="https://...">
+                        </div>
+                    </div>
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Fő szolgáltatások/termékek</label>
+                            <textarea name="services" class="form-control" rows="3" placeholder="pl. duguláselhárítás, csőtörés javítás..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>USP-k (egyedi előnyök)</label>
+                            <textarea name="usps" class="form-control" rows="3" placeholder="pl. 24 órás, 30 perc kiszállás..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-lg" id="pmaxBtn">📦 PMax Assetek Generálása</button>
+            </form>
+        </div>
+        
+        <div class="card" style="margin-top:20px">
+            <h3 class="card-title">📋 PMax Asset Követelmények</h3>
+            <div class="pmax-requirements">
+                <div class="req-section">
+                    <h4>📝 Szöveg Assetek (mi generáljuk)</h4>
+                    <ul>
+                        <li><strong>Headlines:</strong> 3-15 db, max 30 karakter</li>
+                        <li><strong>Long Headlines:</strong> 1-5 db, max 90 karakter</li>
+                        <li><strong>Descriptions:</strong> 2-5 db, max 90 karakter</li>
+                        <li><strong>Business Name:</strong> max 25 karakter</li>
+                    </ul>
+                </div>
+                <div class="req-section">
+                    <h4>🖼️ Kép Assetek (javaslatokat adunk)</h4>
+                    <ul>
+                        <li><strong>Landscape:</strong> 1200x628 (1.91:1) - min 3 db</li>
+                        <li><strong>Square:</strong> 1200x1200 (1:1) - min 3 db</li>
+                        <li><strong>Portrait:</strong> 960x1200 (4:5) - opcionális</li>
+                        <li><strong>Logo:</strong> 1200x1200 (négyzet) + 1200x300 (landscape)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div id="pmaxResults"></div>
+    </section>
+
+<?php elseif ($tab === 'industries'): ?>
+<!-- ==================== IPARÁGAK TAB ==================== -->
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>🏭 Iparág Kezelés</h2>
+            <button class="btn btn-primary" onclick="showModal('newIndustryModal')">+ Új Iparág</button>
+        </div>
+        
+        <div class="industries-grid">
+            <?php foreach ($industries as $key => $ind): ?>
+            <div class="industry-manage-card">
+                <div class="ind-header">
+                    <span class="ind-icon"><?= $ind['icon'] ?></span>
+                    <div class="ind-info">
+                        <h3><?= htmlspecialchars($ind['name']) ?></h3>
+                        <span class="ind-key"><?= $key ?></span>
+                    </div>
+                </div>
+                <div class="ind-stats">
+                    <span>USP-k: <?= count($ind['usps'] ?? []) ?></span>
+                    <span>CPA: <?= $ind['benchmarks']['cpa_budapest'] ?? 'n/a' ?></span>
+                </div>
+                <div class="ind-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="viewIndustry('<?= $key ?>')">👁️ Részletek</button>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        
+        <!-- Egyéni iparágak -->
+        <?php 
+        $customIndustries = [];
+        $customFile = __DIR__ . '/data/custom_industries.json';
+        if (file_exists($customFile)) {
+            $customIndustries = json_decode(file_get_contents($customFile), true) ?: [];
+        }
+        ?>
+        
+        <?php if (!empty($customIndustries)): ?>
+        <h3 style="margin-top:30px">📁 Egyéni Iparágak</h3>
+        <div class="industries-grid">
+            <?php foreach ($customIndustries as $key => $ind): ?>
+            <div class="industry-manage-card custom">
+                <div class="ind-header">
+                    <span class="ind-icon"><?= $ind['icon'] ?? '🏢' ?></span>
+                    <div class="ind-info">
+                        <h3><?= htmlspecialchars($ind['name']) ?></h3>
+                        <span class="ind-key custom-badge">egyéni</span>
+                    </div>
+                </div>
+                <div class="ind-stats">
+                    <span>USP-k: <?= count($ind['usps'] ?? []) ?></span>
+                </div>
+                <div class="ind-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="viewIndustry('<?= $key ?>')">👁️</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteIndustry('<?= $key ?>')">🗑️</button>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+    </section>
+
+    <!-- Új iparág modal -->
+    <div id="newIndustryModal" class="modal hidden">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3>🏭 Új Iparág Létrehozása (AI)</h3>
+                <button class="modal-close" onclick="hideModal('newIndustryModal')">×</button>
+            </div>
+            <form method="POST" action="api.php" id="newIndustryForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="generate_industry">
+                
+                <div class="form-group">
+                    <label>Iparág neve *</label>
+                    <input type="text" name="name" class="form-control" placeholder="pl. Autószerelő, Fodrász, Ügyvéd..." required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Rövid leírás (opcionális)</label>
+                    <textarea name="description" class="form-control" rows="2" placeholder="Milyen szolgáltatásokat tartalmaz..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Emoji ikon</label>
+                    <input type="text" name="icon" class="form-control" placeholder="🔧" maxlength="4" style="width:80px">
+                </div>
+                
+                <p class="help-text">Az AI automatikusan generálja: USP-ket, Benchmarkokat, Negatív kulcsszavakat, Headline sablonokat</p>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('newIndustryModal')">Mégse</button>
+                    <button type="submit" class="btn btn-primary" id="generateIndustryBtn">🧠 Generálás AI-val</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 <?php elseif ($tab === 'strategies'): ?>
 <!-- ==================== STRATÉGIÁK TAB ==================== -->
 
@@ -698,6 +1323,228 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
             location.reload();
         });
     });
+    
+    // Kulcsszó form-ok
+    document.querySelectorAll('.keyword-form').forEach(form => {
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = this.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerHTML = '⏳...';
+            
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+                const data = await resp.json();
+                if (data.success) {
+                    alert(`✅ ${data.added} kulcsszó mentve (${data.total - data.added} már létezett)`);
+                    location.reload();
+                }
+            } catch (err) {
+                alert('Hiba: ' + err.message);
+            }
+            
+            btn.disabled = false;
+        });
+    });
+    
+    // Kulcsszó törlése
+    function deleteKeyword(id, type) {
+        if (confirm('Törlöd ezt a kulcsszót?')) {
+            fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `action=delete_keyword&id=${id}&type=${type}`
+            }).then(() => location.reload());
+        }
+    }
+    
+    // Összes kulcsszó másolása
+    function copyAllKeywords(type) {
+        const tags = document.querySelectorAll(`.keyword-column:${type === 'positive' ? 'first-child' : 'last-child'} .tag`);
+        const keywords = Array.from(tags).map(t => t.textContent.trim().replace('×', '')).join('\n');
+        navigator.clipboard.writeText(keywords).then(() => alert('✅ ' + tags.length + ' kulcsszó másolva!'));
+    }
+    
+    // Univerzális lista hozzáadása
+    function addUniversalList(key) {
+        const textarea = document.getElementById('universal-' + key);
+        if (textarea) {
+            const form = document.querySelector('.keyword-column:last-child .keyword-form');
+            if (form) {
+                form.querySelector('textarea').value = textarea.value;
+                form.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+    }
+    
+    // Kulcsszó elemzés form
+    document.getElementById('analyzeKeywordsForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('analyzeKwBtn');
+        const results = document.getElementById('keywordAnalysisResults');
+        
+        btn.innerHTML = '⏳ Elemzés...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            results.innerHTML = await resp.text();
+            results.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '🔍 Elemzés Indítása';
+        btn.disabled = false;
+    });
+    
+    // Versenytárs elemzés
+    ['competitorForm', 'manualCompetitorForm'].forEach(formId => {
+        document.getElementById(formId)?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = this.querySelector('button[type="submit"]');
+            const results = document.getElementById('competitorResults');
+            
+            btn.innerHTML = '⏳ Elemzés...';
+            btn.disabled = true;
+            
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+                results.innerHTML = await resp.text();
+                results.scrollIntoView({ behavior: 'smooth' });
+            } catch (err) {
+                results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+            }
+            
+            btn.innerHTML = btn.innerHTML.includes('AI') ? '🧠 AI Elemzés' : '🔍 Versenytársak Elemzése';
+            btn.disabled = false;
+        });
+    });
+    
+    // Landing Page elemzés
+    document.getElementById('landingForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('landingBtn');
+        const results = document.getElementById('landingResults');
+        
+        btn.innerHTML = '⏳ Elemzés folyamatban...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            results.innerHTML = await resp.text();
+            results.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '🔍 Teljes Elemzés Indítása';
+        btn.disabled = false;
+    });
+    
+    // PMax generálás
+    document.getElementById('pmaxForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('pmaxBtn');
+        const results = document.getElementById('pmaxResults');
+        
+        btn.innerHTML = '⏳ Generálás...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            results.innerHTML = await resp.text();
+            results.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '📦 PMax Assetek Generálása';
+        btn.disabled = false;
+    });
+    
+    // Új iparág generálás
+    document.getElementById('newIndustryForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('generateIndustryBtn');
+        
+        btn.innerHTML = '⏳ Generálás AI-val...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            const data = await resp.json();
+            
+            if (data.success) {
+                alert('✅ Iparág létrehozva: ' + data.industry.name);
+                location.reload();
+            } else {
+                alert('❌ Hiba: ' + (data.error || 'Ismeretlen'));
+            }
+        } catch (err) {
+            alert('Hiba: ' + err.message);
+        }
+        
+        btn.innerHTML = '🧠 Generálás AI-val';
+        btn.disabled = false;
+    });
+    
+    // Iparág törlése
+    function deleteIndustry(key) {
+        if (confirm('Biztosan törlöd ezt az iparágat?')) {
+            fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=delete_industry&key=' + key
+            }).then(() => location.reload());
+        }
+    }
+    
+    // Iparág megtekintése
+    function viewIndustry(key) {
+        alert('Részletek: ' + key + '\n\nEz a funkció hamarosan elérhető lesz!');
+    }
+    
+    // Klaszterezés form
+    document.getElementById('clusterKeywordsForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('clusterKwBtn');
+        const results = document.getElementById('clusterResults');
+        
+        btn.innerHTML = '⏳ Klaszterezés...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            results.innerHTML = await resp.text();
+            results.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '📊 Klaszterezés';
+        btn.disabled = false;
+    });
+    
+    // Cluster kulcsszavak másolása
+    function copyClusterKeywords(index) {
+        const textarea = document.getElementById('cluster-kw-' + index);
+        if (textarea) {
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                alert('✅ Kulcsszavak másolva!');
+            });
+        }
+    }
+    
+    // Összes cluster másolása
+    function copyAllClusters() {
+        const textarea = document.getElementById('all-clusters-export');
+        if (textarea) {
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                alert('✅ Összes Ad Group másolva Google Ads formátumban!');
+            });
+        }
+    }
     </script>
 </body>
 </html>

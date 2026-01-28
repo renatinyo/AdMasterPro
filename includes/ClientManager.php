@@ -1,18 +1,20 @@
 <?php
 /**
  * AdMaster Pro - Client Manager
- * Ügyfelek, bevált szövegek és kampány előzmények kezelése
+ * Ügyfelek, bevált szövegek, kulcsszavak kezelése
  */
 
 class ClientManager {
     private string $dataDir;
     private string $clientsFile;
     private string $headlinesFile;
+    private string $keywordsFile;
     
     public function __construct() {
         $this->dataDir = __DIR__ . '/../data/';
         $this->clientsFile = $this->dataDir . 'clients.json';
         $this->headlinesFile = $this->dataDir . 'headlines.json';
+        $this->keywordsFile = $this->dataDir . 'keywords.json';
         
         // Fájlok létrehozása ha nem léteznek
         if (!file_exists($this->clientsFile)) {
@@ -22,6 +24,12 @@ class ClientManager {
             file_put_contents($this->headlinesFile, json_encode([
                 'headlines' => [],
                 'descriptions' => []
+            ], JSON_PRETTY_PRINT));
+        }
+        if (!file_exists($this->keywordsFile)) {
+            file_put_contents($this->keywordsFile, json_encode([
+                'positive' => [],
+                'negative' => []
             ], JSON_PRETTY_PRINT));
         }
     }
@@ -65,19 +73,6 @@ class ClientManager {
         return false;
     }
     
-    // Kampány anyag mentése ügyfélhez
-    public function saveCampaignToClient(string $clientId, array $campaign): bool {
-        $clients = $this->getClients();
-        if (!isset($clients[$clientId])) return false;
-        
-        $campaign['date'] = date('Y-m-d H:i:s');
-        $clients[$clientId]['campaigns'][] = $campaign;
-        $clients[$clientId]['updated_at'] = date('Y-m-d H:i:s');
-        
-        file_put_contents($this->clientsFile, json_encode($clients, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        return true;
-    }
-    
     // === BEVÁLT SZÖVEGEK ===
     
     public function getHeadlinesBank(): array {
@@ -116,36 +111,91 @@ class ClientManager {
         return file_put_contents($this->headlinesFile, json_encode($bank, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
     }
     
-    public function deleteDescription(string $id): bool {
-        $bank = $this->getHeadlinesBank();
-        $bank['descriptions'] = array_filter($bank['descriptions'], fn($d) => $d['id'] !== $id);
-        $bank['descriptions'] = array_values($bank['descriptions']);
-        return file_put_contents($this->headlinesFile, json_encode($bank, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
-    }
-    
-    public function updateHeadlineRating(string $id, int $rating): bool {
-        $bank = $this->getHeadlinesBank();
-        foreach ($bank['headlines'] as &$h) {
-            if ($h['id'] === $id) {
-                $h['rating'] = $rating;
-                break;
-            }
-        }
-        return file_put_contents($this->headlinesFile, json_encode($bank, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
-    }
-    
-    // Bevált szövegek lekérése iparág szerint
     public function getHeadlinesForIndustry(string $industry = ''): array {
         $bank = $this->getHeadlinesBank();
         if (empty($industry)) return $bank['headlines'];
-        
         return array_filter($bank['headlines'], fn($h) => empty($h['industry']) || $h['industry'] === $industry);
     }
     
-    public function getDescriptionsForIndustry(string $industry = ''): array {
-        $bank = $this->getHeadlinesBank();
-        if (empty($industry)) return $bank['descriptions'];
+    // === KULCSSZAVAK ===
+    
+    public function getKeywordsBank(): array {
+        $data = file_get_contents($this->keywordsFile);
+        return json_decode($data, true) ?: ['positive' => [], 'negative' => []];
+    }
+    
+    public function addKeywords(array $keywords, string $type = 'positive', string $industry = ''): int {
+        $bank = $this->getKeywordsBank();
+        $added = 0;
         
-        return array_filter($bank['descriptions'], fn($d) => empty($d['industry']) || $d['industry'] === $industry);
+        foreach ($keywords as $kw) {
+            $kw = trim($kw);
+            if (empty($kw)) continue;
+            
+            // Duplikáció ellenőrzés
+            $exists = false;
+            foreach ($bank[$type] as $existing) {
+                if (strtolower($existing['keyword']) === strtolower($kw)) {
+                    $exists = true;
+                    break;
+                }
+            }
+            
+            if (!$exists) {
+                $bank[$type][] = [
+                    'id' => uniqid('kw_'),
+                    'keyword' => $kw,
+                    'industry' => $industry,
+                    'created_at' => date('Y-m-d H:i:s')
+                ];
+                $added++;
+            }
+        }
+        
+        file_put_contents($this->keywordsFile, json_encode($bank, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        return $added;
+    }
+    
+    public function deleteKeyword(string $id, string $type = 'positive'): bool {
+        $bank = $this->getKeywordsBank();
+        $bank[$type] = array_filter($bank[$type], fn($k) => $k['id'] !== $id);
+        $bank[$type] = array_values($bank[$type]);
+        return file_put_contents($this->keywordsFile, json_encode($bank, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
+    }
+    
+    public function getKeywordsForIndustry(string $industry = '', string $type = 'positive'): array {
+        $bank = $this->getKeywordsBank();
+        if (empty($industry)) return $bank[$type];
+        return array_filter($bank[$type], fn($k) => empty($k['industry']) || $k['industry'] === $industry);
+    }
+    
+    public function getAllKeywordsText(string $type = 'positive'): string {
+        $bank = $this->getKeywordsBank();
+        return implode("\n", array_map(fn($k) => $k['keyword'], $bank[$type]));
+    }
+    
+    // Kulcsszó ütközés ellenőrzés
+    public function checkKeywordConflicts(array $keywords): array {
+        $bank = $this->getKeywordsBank();
+        $conflicts = [];
+        
+        foreach ($keywords as $kw) {
+            $kw = trim(strtolower($kw));
+            if (empty($kw)) continue;
+            
+            foreach ($bank['negative'] as $neg) {
+                $negKw = strtolower($neg['keyword']);
+                // Pontos egyezés vagy részleges egyezés
+                if ($kw === $negKw || strpos($kw, $negKw) !== false || strpos($negKw, $kw) !== false) {
+                    $conflicts[] = [
+                        'keyword' => $kw,
+                        'negative' => $neg['keyword'],
+                        'type' => $kw === $negKw ? 'exact' : 'partial'
+                    ];
+                }
+            }
+        }
+        
+        return $conflicts;
     }
 }

@@ -60,7 +60,10 @@ define('LOG_LEVEL', APP_DEBUG ? 'debug' : 'error');
 
 // Alkalmazás info
 define('APP_NAME', 'AdMaster Pro');
-define('APP_VERSION', '3.1.0');
+define('APP_VERSION', '3.4.0');
+
+// SerpApi kulcs (versenytárs figyeléshez)
+define('SERPAPI_KEY', getenv('SERPAPI_KEY') ?: '');
 
 /**
  * Error handler beállítás

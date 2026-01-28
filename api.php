@@ -54,6 +54,16 @@ try {
         'delete_client', 'deleteclient' => handleDeleteClient(),
         'save_headline', 'saveheadline' => handleSaveHeadline(),
         'delete_headline', 'deleteheadline' => handleDeleteHeadline(),
+        'save_keywords', 'savekeywords' => handleSaveKeywords(),
+        'delete_keyword', 'deletekeyword' => handleDeleteKeyword(),
+        'analyze_keywords', 'analyzekeywords' => handleAnalyzeKeywords($industries),
+        'cluster_keywords', 'clusterkeywords' => handleClusterKeywords($industries),
+        'analyze_competitors', 'analyzecompetitors' => handleAnalyzeCompetitors($industries),
+        'analyze_competitor_manual', 'analyzecompetitormanual' => handleAnalyzeCompetitorManual($industries),
+        'analyze_landing_full', 'analyzelandingfull' => handleAnalyzeLandingFull($industries),
+        'generate_pmax', 'generatepmax' => handleGeneratePmax($industries),
+        'generate_industry', 'generateindustry' => handleGenerateIndustry(),
+        'delete_industry', 'deleteindustry' => handleDeleteIndustry(),
         default => print renderError('Ismeretlen művelet')
     };
 } catch (Exception $e) {
@@ -113,6 +123,870 @@ function handleDeleteHeadline(): void {
     $id = Security::sanitizeInput($_POST['id'] ?? '', 'string');
     $result = $cm->deleteHeadline($id);
     echo json_encode(['success' => $result]);
+}
+
+// === KEYWORD HANDLERS ===
+function handleSaveKeywords(): void {
+    $cm = new ClientManager();
+    $type = Security::sanitizeInput($_POST['type'] ?? 'positive', 'alpha');
+    $industry = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    $keywordsText = $_POST['keywords'] ?? '';
+    
+    // Sorokra bontás
+    $keywords = array_filter(array_map('trim', explode("\n", $keywordsText)));
+    
+    if (empty($keywords)) {
+        echo json_encode(['success' => false, 'error' => 'Nincs kulcsszó megadva']);
+        return;
+    }
+    
+    $added = $cm->addKeywords($keywords, $type, $industry);
+    echo json_encode(['success' => true, 'added' => $added, 'total' => count($keywords)]);
+}
+
+function handleDeleteKeyword(): void {
+    $cm = new ClientManager();
+    $id = Security::sanitizeInput($_POST['id'] ?? '', 'string');
+    $type = Security::sanitizeInput($_POST['type'] ?? 'positive', 'alpha');
+    $result = $cm->deleteKeyword($id, $type);
+    echo json_encode(['success' => $result]);
+}
+
+function handleAnalyzeKeywords(array $industries): void {
+    $keywordsText = $_POST['keywords'] ?? '';
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    $checkNegatives = isset($_POST['check_negatives']);
+    $suggestVariations = isset($_POST['suggest_variations']);
+    $findProblems = isset($_POST['find_problems']);
+    
+    $keywords = array_filter(array_map('trim', explode("\n", $keywordsText)));
+    
+    if (empty($keywords)) {
+        echo renderError('Nincs kulcsszó megadva az elemzéshez.');
+        return;
+    }
+    
+    $cm = new ClientManager();
+    $results = [
+        'total' => count($keywords),
+        'conflicts' => [],
+        'problems' => [],
+        'suggestions' => []
+    ];
+    
+    // Negatív ütközések ellenőrzése
+    if ($checkNegatives) {
+        $results['conflicts'] = $cm->checkKeywordConflicts($keywords);
+    }
+    
+    // AI elemzés
+    $industry = $industry_key && isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    
+    $prompt = "Elemezd ezeket a magyar Google Ads kulcsszavakat" . ($industry ? " a(z) {$industry['name']} iparágban" : "") . ":
+
+KULCSSZAVAK:
+" . implode("\n", $keywords) . "
+
+FELADATOK:
+1. PROBLÉMÁK: Keress problémás kulcsszavakat (túl általános, rossz intent, alacsony minőség)
+2. " . ($suggestVariations ? "VARIÁCIÓK: Javasolj jobb/bővebb variációkat" : "") . "
+3. TIPPEK: Adj 2-3 gyakorlati tanácsot
+
+Válaszolj JSON-ben:
+{
+    \"problems\": [{\"keyword\": \"...\", \"issue\": \"probléma leírása\", \"suggestion\": \"javaslat\"}],
+    \"variations\": [{\"original\": \"...\", \"variations\": [\"...\", \"...\"]}],
+    \"tips\": [\"...\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $aiData = parseJsonResponse($response);
+    
+    // Eredmények renderelése
+    echo '<div class="analysis-results">';
+    echo '<h3 class="card-title">📊 Elemzés Eredménye</h3>';
+    
+    // Statisztika
+    echo '<div class="analysis-stats">';
+    echo '<div class="stat-box"><span class="stat-num">' . count($keywords) . '</span><span class="stat-label">Kulcsszó</span></div>';
+    echo '<div class="stat-box ' . (count($results['conflicts']) > 0 ? 'stat-danger' : 'stat-success') . '"><span class="stat-num">' . count($results['conflicts']) . '</span><span class="stat-label">Ütközés</span></div>';
+    echo '<div class="stat-box ' . (count($aiData['problems'] ?? []) > 0 ? 'stat-warning' : 'stat-success') . '"><span class="stat-num">' . count($aiData['problems'] ?? []) . '</span><span class="stat-label">Probléma</span></div>';
+    echo '</div>';
+    
+    // Ütközések
+    if (!empty($results['conflicts'])) {
+        echo '<div class="alert alert-error">';
+        echo '<strong>⚠️ Negatív kulcsszó ütközések!</strong><br>';
+        foreach ($results['conflicts'] as $c) {
+            echo '<span class="tag tag-red">' . htmlspecialchars($c['keyword']) . '</span> ütközik: <span class="tag">' . htmlspecialchars($c['negative']) . '</span><br>';
+        }
+        echo '</div>';
+    }
+    
+    // Problémák
+    if (!empty($aiData['problems'])) {
+        echo '<div class="card" style="margin-top:16px">';
+        echo '<h4>⚠️ Problémás Kulcsszavak</h4>';
+        echo '<div class="problems-list">';
+        foreach ($aiData['problems'] as $p) {
+            echo '<div class="problem-item">';
+            echo '<span class="tag tag-orange">' . htmlspecialchars($p['keyword']) . '</span>';
+            echo '<span class="problem-issue">' . htmlspecialchars($p['issue']) . '</span>';
+            if (!empty($p['suggestion'])) {
+                echo '<span class="problem-fix">💡 ' . htmlspecialchars($p['suggestion']) . '</span>';
+            }
+            echo '</div>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Variációk
+    if (!empty($aiData['variations'])) {
+        echo '<div class="card" style="margin-top:16px">';
+        echo '<h4>✨ Javasolt Variációk</h4>';
+        foreach ($aiData['variations'] as $v) {
+            echo '<div class="variation-item">';
+            echo '<span class="tag">' . htmlspecialchars($v['original']) . '</span> → ';
+            foreach ($v['variations'] as $var) {
+                echo '<span class="tag tag-green">' . htmlspecialchars($var) . '</span> ';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    // Tippek
+    if (!empty($aiData['tips'])) {
+        echo '<div class="card card-tips" style="margin-top:16px">';
+        echo '<h4>💡 Tippek</h4><ul>';
+        foreach ($aiData['tips'] as $tip) {
+            echo '<li>' . htmlspecialchars($tip) . '</li>';
+        }
+        echo '</ul></div>';
+    }
+    
+    echo '</div>';
+}
+
+// === KEYWORD CLUSTERING ===
+function handleClusterKeywords(array $industries): void {
+    $keywordsText = $_POST['keywords'] ?? '';
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    $num_groups = Security::sanitizeInput($_POST['num_groups'] ?? 'auto', 'alphanumeric');
+    $suggest_names = isset($_POST['suggest_names']);
+    $suggest_headlines = isset($_POST['suggest_headlines']);
+    
+    $keywords = array_filter(array_map('trim', explode("\n", $keywordsText)));
+    
+    if (count($keywords) < 3) {
+        echo renderError('Legalább 3 kulcsszó kell a klaszterezéshez.');
+        return;
+    }
+    
+    $industry = isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    
+    $groupInstruction = match($num_groups) {
+        '3' => '3-5 csoportba',
+        '5' => '5-8 csoportba',
+        '10' => '8-12 csoportba',
+        default => 'logikus számú csoportba (te döntsd el)'
+    };
+    
+    $prompt = "Te egy magyar Google Ads szakértő vagy. Klaszterezd ezeket a kulcsszavakat Ad Group-okba" . ($industry ? " ({$industry['name']} iparág)" : "") . ".
+
+KULCSSZAVAK (" . count($keywords) . " db):
+" . implode("\n", $keywords) . "
+
+FELADAT:
+1. Csoportosítsd a kulcsszavakat $groupInstruction
+2. A csoportok legyenek logikusak (intent alapján):
+   - Sürgősségi (azonnal, gyors, éjszakai)
+   - Ár-érzékeny (olcsó, ár, árak, mennyibe)
+   - Helyszín alapú (budapest, kerület, város)
+   - Szolgáltatás típus (konkrét szolgáltatások)
+   - Probléma alapú (dugulás, csőtörés, szivárgás)
+   - Brand/általános
+" . ($suggest_names ? "3. Adj magyar Ad Group nevet minden csoportnak" : "") . "
+" . ($suggest_headlines ? "4. Javasolj 2 headline-t csoportonként (max 30 kar)" : "") . "
+
+Válasz JSON:
+{
+    \"clusters\": [
+        {
+            \"name\": \"Ad Group név\",
+            \"theme\": \"rövid leírás miért tartoznak össze\",
+            \"keywords\": [\"kulcsszó1\", \"kulcsszó2\"],
+            \"match_type_suggestion\": \"phrase/exact/broad\",
+            \"headlines\": [\"Headline 1\", \"Headline 2\"],
+            \"bid_suggestion\": \"magasabb/átlagos/alacsonyabb (miért)\"
+        }
+    ],
+    \"unclustered\": [\"ha van ami nem illik sehova\"],
+    \"tips\": [\"általános tanácsok\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $data = parseJsonResponse($response);
+    
+    // Render eredmények
+    echo '<div class="cluster-results">';
+    echo '<h3>📊 Klaszterezés Eredménye</h3>';
+    echo '<p class="help-text">' . count($keywords) . ' kulcsszó → ' . count($data['clusters'] ?? []) . ' Ad Group</p>';
+    
+    // Összefoglaló statisztika
+    echo '<div class="cluster-stats">';
+    foreach ($data['clusters'] ?? [] as $i => $cluster) {
+        echo '<div class="cluster-stat">';
+        echo '<span class="cluster-num">' . count($cluster['keywords']) . '</span>';
+        echo '<span class="cluster-name">' . htmlspecialchars($cluster['name']) . '</span>';
+        echo '</div>';
+    }
+    echo '</div>';
+    
+    // Klaszterek részletesen
+    echo '<div class="clusters-list">';
+    foreach ($data['clusters'] ?? [] as $i => $cluster) {
+        $colorClass = ['cluster-blue', 'cluster-green', 'cluster-orange', 'cluster-purple', 'cluster-red', 'cluster-teal'][$i % 6];
+        
+        echo '<div class="cluster-card ' . $colorClass . '">';
+        echo '<div class="cluster-header">';
+        echo '<h4>' . htmlspecialchars($cluster['name']) . '</h4>';
+        echo '<span class="cluster-count">' . count($cluster['keywords']) . ' kulcsszó</span>';
+        echo '</div>';
+        
+        if (!empty($cluster['theme'])) {
+            echo '<p class="cluster-theme">' . htmlspecialchars($cluster['theme']) . '</p>';
+        }
+        
+        // Kulcsszavak
+        echo '<div class="cluster-keywords">';
+        foreach ($cluster['keywords'] as $kw) {
+            echo '<span class="tag">' . htmlspecialchars($kw) . '</span>';
+        }
+        echo '</div>';
+        
+        // Match type javaslat
+        if (!empty($cluster['match_type_suggestion'])) {
+            echo '<div class="cluster-meta">';
+            echo '<span class="meta-item">🎯 Match type: <strong>' . htmlspecialchars($cluster['match_type_suggestion']) . '</strong></span>';
+            if (!empty($cluster['bid_suggestion'])) {
+                echo '<span class="meta-item">💰 Bid: ' . htmlspecialchars($cluster['bid_suggestion']) . '</span>';
+            }
+            echo '</div>';
+        }
+        
+        // Headlines
+        if (!empty($cluster['headlines'])) {
+            echo '<div class="cluster-headlines">';
+            echo '<strong>Javasolt Headlines:</strong>';
+            foreach ($cluster['headlines'] as $hl) {
+                echo '<div class="headline-preview">"' . htmlspecialchars($hl) . '" <span class="char-count">' . mb_strlen($hl) . '/30</span></div>';
+            }
+            echo '</div>';
+        }
+        
+        // Copy gomb
+        echo '<button class="btn btn-sm btn-secondary" onclick="copyClusterKeywords(' . $i . ')" style="margin-top:12px">📋 Kulcsszavak másolása</button>';
+        echo '<textarea class="hidden" id="cluster-kw-' . $i . '">' . implode("\n", $cluster['keywords']) . '</textarea>';
+        
+        echo '</div>';
+    }
+    echo '</div>';
+    
+    // Nem klaszterezett
+    if (!empty($data['unclustered'])) {
+        echo '<div class="card" style="margin-top:16px">';
+        echo '<h4>⚠️ Nem besorolható kulcsszavak</h4>';
+        echo '<div class="tags-list">';
+        foreach ($data['unclustered'] as $kw) {
+            echo '<span class="tag tag-orange">' . htmlspecialchars($kw) . '</span>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Tippek
+    if (!empty($data['tips'])) {
+        echo '<div class="card card-tips" style="margin-top:16px">';
+        echo '<h4>💡 Tanácsok</h4><ul>';
+        foreach ($data['tips'] as $tip) {
+            echo '<li>' . htmlspecialchars($tip) . '</li>';
+        }
+        echo '</ul></div>';
+    }
+    
+    // Export gombok
+    echo '<div class="cluster-export" style="margin-top:20px">';
+    echo '<button class="btn btn-primary" onclick="copyAllClusters()">📋 Összes másolása (Google Ads formátum)</button>';
+    echo '</div>';
+    
+    // Hidden textarea az export-hoz
+    $exportText = "";
+    foreach ($data['clusters'] ?? [] as $cluster) {
+        $exportText .= "=== " . $cluster['name'] . " ===\n";
+        foreach ($cluster['keywords'] as $kw) {
+            $exportText .= '"' . $kw . '"' . "\n"; // Phrase match
+        }
+        $exportText .= "\n";
+    }
+    echo '<textarea class="hidden" id="all-clusters-export">' . htmlspecialchars($exportText) . '</textarea>';
+    
+    echo '</div>';
+}
+
+// === COMPETITOR ANALYSIS ===
+function handleAnalyzeCompetitors(array $industries): void {
+    $keyword = Security::sanitizeInput($_POST['keyword'] ?? '', 'string');
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    $own_ad = $_POST['own_ad'] ?? '';
+    
+    if (empty($keyword)) {
+        echo renderError('Kulcsszó megadása kötelező.');
+        return;
+    }
+    
+    $competitorAds = [];
+    
+    // SerpApi lekérés ha van kulcs
+    if (!empty(SERPAPI_KEY)) {
+        $serpUrl = 'https://serpapi.com/search.json?' . http_build_query([
+            'q' => $keyword,
+            'location' => 'Budapest, Hungary',
+            'hl' => 'hu',
+            'gl' => 'hu',
+            'api_key' => SERPAPI_KEY
+        ]);
+        
+        $serpResponse = @file_get_contents($serpUrl);
+        if ($serpResponse) {
+            $serpData = json_decode($serpResponse, true);
+            
+            // Hirdetések kinyerése
+            foreach ($serpData['ads'] ?? [] as $ad) {
+                $competitorAds[] = [
+                    'title' => $ad['title'] ?? '',
+                    'description' => $ad['description'] ?? '',
+                    'link' => $ad['link'] ?? '',
+                    'displayed_link' => $ad['displayed_link'] ?? ''
+                ];
+            }
+        }
+    }
+    
+    // Ha nincs hirdetés, jelezzük
+    if (empty($competitorAds)) {
+        echo '<div class="alert alert-warning">⚠️ Nem találtunk hirdetéseket a SerpApi-n keresztül. Használd a "Kézi Hirdetés Elemzés" funkciót!</div>';
+        return;
+    }
+    
+    // AI elemzés
+    $industry = isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    
+    $prompt = "Elemezd ezeket a magyar Google Ads hirdetéseket" . ($industry ? " a(z) {$industry['name']} iparágban" : "") . ":
+
+VERSENYTÁRS HIRDETÉSEK:
+" . json_encode($competitorAds, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "
+
+" . ($own_ad ? "SAJÁT HIRDETÉS:\n$own_ad\n" : "") . "
+
+ELEMEZD:
+1. Mi működik jól a versenytárs hirdetésekben?
+2. Mik a gyengeségeik?
+3. Milyen USP-ket használnak?
+4. " . ($own_ad ? "Miben jobbak/rosszabbak nálam?" : "") . "
+5. Adj javaslatokat a saját hirdetésem javítására
+
+Válasz JSON:
+{
+    \"competitor_strengths\": [\"...\"],
+    \"competitor_weaknesses\": [\"...\"],
+    \"usps_found\": [\"...\"],
+    \"comparison\": \"...\",
+    \"recommendations\": [\"...\"],
+    \"suggested_headlines\": [\"...\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $data = parseJsonResponse($response);
+    
+    // Render
+    echo '<div class="analysis-results">';
+    echo '<h3>🔍 Versenytárs Elemzés Eredménye</h3>';
+    echo '<p class="help-text">Talált hirdetések: ' . count($competitorAds) . '</p>';
+    
+    // Talált hirdetések megjelenítése
+    echo '<div class="competitor-ads">';
+    foreach ($competitorAds as $i => $ad) {
+        echo '<div class="competitor-ad-card">';
+        echo '<div class="ad-title">' . htmlspecialchars($ad['title']) . '</div>';
+        echo '<div class="ad-url">' . htmlspecialchars($ad['displayed_link']) . '</div>';
+        echo '<div class="ad-desc">' . htmlspecialchars($ad['description']) . '</div>';
+        echo '</div>';
+    }
+    echo '</div>';
+    
+    // AI elemzés eredményei
+    if (!empty($data['competitor_strengths'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>✅ Erősségek</h4><ul>';
+        foreach ($data['competitor_strengths'] as $s) echo '<li>' . htmlspecialchars($s) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    if (!empty($data['competitor_weaknesses'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>❌ Gyengeségek</h4><ul>';
+        foreach ($data['competitor_weaknesses'] as $w) echo '<li>' . htmlspecialchars($w) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    if (!empty($data['recommendations'])) {
+        echo '<div class="card card-tips" style="margin-top:16px"><h4>💡 Javaslatok</h4><ul>';
+        foreach ($data['recommendations'] as $r) echo '<li>' . htmlspecialchars($r) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    if (!empty($data['suggested_headlines'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>✨ Javasolt Headlines</h4><div class="tags-list">';
+        foreach ($data['suggested_headlines'] as $h) echo '<span class="tag tag-green">' . htmlspecialchars($h) . '</span>';
+        echo '</div></div>';
+    }
+    
+    echo '</div>';
+}
+
+function handleAnalyzeCompetitorManual(array $industries): void {
+    $competitor_ads = $_POST['competitor_ads'] ?? '';
+    $own_ad = $_POST['own_ad'] ?? '';
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    
+    if (empty($competitor_ads)) {
+        echo renderError('Illeszd be a versenytárs hirdetéseket.');
+        return;
+    }
+    
+    $industry = isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    
+    $prompt = "Elemezd ezeket a beillesztett versenytárs Google Ads hirdetéseket" . ($industry ? " ({$industry['name']} iparág)" : "") . ":
+
+VERSENYTÁRS HIRDETÉSEK:
+$competitor_ads
+
+" . ($own_ad ? "SAJÁT HIRDETÉS:\n$own_ad\n" : "") . "
+
+ELEMEZD részletesen:
+1. Milyen headline-okat használnak?
+2. Milyen USP-ket emelnek ki?
+3. Milyen CTA-kat használnak?
+4. Mik az erősségeik/gyengeségeik?
+5. " . ($own_ad ? "Összehasonlítás a saját hirdetésemmel" : "") . "
+6. Konkrét javaslatok
+
+Válasz JSON:
+{
+    \"headlines_found\": [\"...\"],
+    \"usps_found\": [\"...\"],
+    \"ctas_found\": [\"...\"],
+    \"strengths\": [\"...\"],
+    \"weaknesses\": [\"...\"],
+    \"comparison\": \"...\",
+    \"recommendations\": [\"...\"],
+    \"better_headlines\": [\"...\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $data = parseJsonResponse($response);
+    
+    echo '<div class="analysis-results">';
+    echo '<h3>🧠 AI Elemzés Eredménye</h3>';
+    
+    if (!empty($data['headlines_found'])) {
+        echo '<div class="card"><h4>📝 Talált Headlines</h4><div class="tags-list">';
+        foreach ($data['headlines_found'] as $h) echo '<span class="tag">' . htmlspecialchars($h) . '</span>';
+        echo '</div></div>';
+    }
+    
+    if (!empty($data['usps_found'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>⭐ Használt USP-k</h4><div class="tags-list">';
+        foreach ($data['usps_found'] as $u) echo '<span class="tag tag-blue">' . htmlspecialchars($u) . '</span>';
+        echo '</div></div>';
+    }
+    
+    if (!empty($data['comparison'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>⚖️ Összehasonlítás</h4><p>' . htmlspecialchars($data['comparison']) . '</p></div>';
+    }
+    
+    if (!empty($data['recommendations'])) {
+        echo '<div class="card card-tips" style="margin-top:16px"><h4>💡 Javaslatok</h4><ul>';
+        foreach ($data['recommendations'] as $r) echo '<li>' . htmlspecialchars($r) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    if (!empty($data['better_headlines'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>✨ Javasolt Jobb Headlines</h4><div class="tags-list">';
+        foreach ($data['better_headlines'] as $h) echo '<span class="tag tag-green">' . htmlspecialchars($h) . '</span>';
+        echo '</div></div>';
+    }
+    
+    echo '</div>';
+}
+
+// === LANDING PAGE FULL ANALYSIS ===
+function handleAnalyzeLandingFull(array $industries): void {
+    $url = Security::sanitizeInput($_POST['url'] ?? '', 'url');
+    $keyword = Security::sanitizeInput($_POST['keyword'] ?? '', 'string');
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    
+    $check_technical = isset($_POST['check_technical']);
+    $check_cro = isset($_POST['check_cro']);
+    $check_seo = isset($_POST['check_seo']);
+    $rewrite_content = isset($_POST['rewrite_content']);
+    
+    if (empty($url)) {
+        echo renderError('URL megadása kötelező.');
+        return;
+    }
+    
+    // Oldal letöltése
+    $context = stream_context_create([
+        'http' => ['timeout' => 15, 'user_agent' => 'Mozilla/5.0 AdMaster Bot']
+    ]);
+    $html = @file_get_contents($url, false, $context);
+    
+    if (!$html) {
+        echo renderError('Az oldal nem elérhető vagy túl lassú.');
+        return;
+    }
+    
+    // HTML elemzés
+    $dom = new DOMDocument();
+    @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
+    $xpath = new DOMXPath($dom);
+    
+    $results = ['url' => $url, 'technical' => [], 'content' => []];
+    
+    // Technikai elemzés
+    if ($check_technical) {
+        // Title
+        $title = $xpath->query('//title')->item(0);
+        $results['technical']['title'] = $title ? trim($title->textContent) : 'HIÁNYZIK!';
+        
+        // Meta description
+        $metaDesc = $xpath->query('//meta[@name="description"]/@content')->item(0);
+        $results['technical']['meta_description'] = $metaDesc ? $metaDesc->textContent : 'HIÁNYZIK!';
+        
+        // H1
+        $h1 = $xpath->query('//h1')->item(0);
+        $results['technical']['h1'] = $h1 ? trim($h1->textContent) : 'HIÁNYZIK!';
+        
+        // H1 count
+        $results['technical']['h1_count'] = $xpath->query('//h1')->length;
+        
+        // Telefon
+        preg_match_all('/(\+36|06)[\s\-]?\d{1,2}[\s\-]?\d{3}[\s\-]?\d{3,4}/', $html, $phones);
+        $results['technical']['phone_found'] = !empty($phones[0]);
+        $results['technical']['phones'] = array_unique($phones[0] ?? []);
+        
+        // Form
+        $results['technical']['has_form'] = $xpath->query('//form')->length > 0;
+        
+        // CTA gombok
+        $ctas = $xpath->query('//a[contains(@class,"btn") or contains(@class,"button") or contains(@class,"cta")] | //button');
+        $results['technical']['cta_count'] = $ctas->length;
+    }
+    
+    // Tartalom kinyerése
+    $bodyText = '';
+    $paragraphs = $xpath->query('//p | //h1 | //h2 | //h3 | //li');
+    foreach ($paragraphs as $p) {
+        $bodyText .= trim($p->textContent) . "\n";
+    }
+    $bodyText = mb_substr($bodyText, 0, 5000); // Max 5000 kar
+    
+    $industry = isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    
+    // AI elemzés
+    $prompt = "Elemezd ezt a magyar landing page-et" . ($industry ? " ({$industry['name']} iparág)" : "") . ":
+
+URL: $url
+" . ($keyword ? "FŐ KULCSSZÓ: $keyword\n" : "") . "
+
+TECHNIKAI ADATOK:
+" . json_encode($results['technical'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "
+
+OLDAL TARTALMA:
+$bodyText
+
+ELEMEZD:
+" . ($check_cro ? "1. CRO szempontból: USP-k megjelennek? CTA-k jók? Trust elemek (vélemények, garancia)?" : "") . "
+" . ($check_seo ? "2. SEO szempontból: Kulcsszó használat, struktúra" : "") . "
+" . ($rewrite_content ? "3. KONKRÉT ÁTÍRÁSI JAVASLATOK: H1, meta description, főbb bekezdések" : "") . "
+
+Válasz JSON:
+{
+    \"score\": 0-100,
+    \"cro_issues\": [\"...\"],
+    \"cro_strengths\": [\"...\"],
+    \"seo_issues\": [\"...\"],
+    \"rewrites\": [
+        {\"element\": \"H1\", \"current\": \"...\", \"suggested\": \"...\", \"reason\": \"...\"},
+        {\"element\": \"Meta Description\", \"current\": \"...\", \"suggested\": \"...\", \"reason\": \"...\"}
+    ],
+    \"quick_wins\": [\"...\"],
+    \"priority_fixes\": [\"...\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $aiData = parseJsonResponse($response);
+    
+    // Render
+    echo '<div class="analysis-results">';
+    echo '<h3>🌐 Landing Page Elemzés</h3>';
+    echo '<p class="help-text">' . htmlspecialchars($url) . '</p>';
+    
+    // Score
+    $score = $aiData['score'] ?? 0;
+    $scoreClass = $score >= 70 ? 'stat-success' : ($score >= 40 ? 'stat-warning' : 'stat-danger');
+    echo '<div class="score-display ' . $scoreClass . '"><span class="big-score">' . $score . '</span>/100</div>';
+    
+    // Technikai eredmények
+    if ($check_technical && !empty($results['technical'])) {
+        echo '<div class="card" style="margin-top:20px"><h4>⚙️ Technikai Audit</h4>';
+        echo '<table class="audit-table">';
+        echo '<tr><td>Title</td><td>' . htmlspecialchars(mb_substr($results['technical']['title'], 0, 60)) . '</td><td>' . (strlen($results['technical']['title']) > 10 ? '✅' : '❌') . '</td></tr>';
+        echo '<tr><td>Meta Desc</td><td>' . htmlspecialchars(mb_substr($results['technical']['meta_description'], 0, 60)) . '...</td><td>' . (strlen($results['technical']['meta_description']) > 50 ? '✅' : '❌') . '</td></tr>';
+        echo '<tr><td>H1</td><td>' . htmlspecialchars($results['technical']['h1']) . '</td><td>' . ($results['technical']['h1_count'] == 1 ? '✅' : '⚠️ ' . $results['technical']['h1_count']) . '</td></tr>';
+        echo '<tr><td>Telefon</td><td>' . implode(', ', $results['technical']['phones']) . '</td><td>' . ($results['technical']['phone_found'] ? '✅' : '❌') . '</td></tr>';
+        echo '<tr><td>Form</td><td>' . ($results['technical']['has_form'] ? 'Van' : 'Nincs') . '</td><td>' . ($results['technical']['has_form'] ? '✅' : '⚠️') . '</td></tr>';
+        echo '<tr><td>CTA gombok</td><td>' . $results['technical']['cta_count'] . ' db</td><td>' . ($results['technical']['cta_count'] > 0 ? '✅' : '❌') . '</td></tr>';
+        echo '</table></div>';
+    }
+    
+    // CRO problémák
+    if (!empty($aiData['cro_issues'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>❌ CRO Problémák</h4><ul>';
+        foreach ($aiData['cro_issues'] as $i) echo '<li>' . htmlspecialchars($i) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    // Átírási javaslatok
+    if (!empty($aiData['rewrites'])) {
+        echo '<div class="card card-highlight" style="margin-top:16px"><h4>✍️ Átírási Javaslatok</h4>';
+        foreach ($aiData['rewrites'] as $rw) {
+            echo '<div class="rewrite-item">';
+            echo '<div class="rw-element">' . htmlspecialchars($rw['element']) . '</div>';
+            echo '<div class="rw-current"><span class="label">Jelenlegi:</span> ' . htmlspecialchars($rw['current']) . '</div>';
+            echo '<div class="rw-suggested"><span class="label">Javasolt:</span> <strong>' . htmlspecialchars($rw['suggested']) . '</strong></div>';
+            echo '<div class="rw-reason">💡 ' . htmlspecialchars($rw['reason']) . '</div>';
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    // Quick wins
+    if (!empty($aiData['quick_wins'])) {
+        echo '<div class="card card-tips" style="margin-top:16px"><h4>⚡ Gyors Javítások</h4><ul>';
+        foreach ($aiData['quick_wins'] as $q) echo '<li>' . htmlspecialchars($q) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    echo '</div>';
+}
+
+// === PMAX GENERATOR ===
+function handleGeneratePmax(array $industries): void {
+    $company = Security::sanitizeInput($_POST['company_name'] ?? '', 'string');
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    $website = Security::sanitizeInput($_POST['website'] ?? '', 'url');
+    $services = $_POST['services'] ?? '';
+    $usps = $_POST['usps'] ?? '';
+    
+    if (empty($company) || !isset($industries[$industry_key])) {
+        echo renderError('Cégnév és iparág megadása kötelező.');
+        return;
+    }
+    
+    $industry = $industries[$industry_key];
+    
+    $prompt = "Generálj Performance Max kampány asseteket erre a magyar cégre:
+
+CÉG: $company
+IPARÁG: {$industry['name']}
+WEBOLDAL: " . ($website ?: 'nincs megadva') . "
+SZOLGÁLTATÁSOK: " . ($services ?: 'nincs megadva') . "
+USP-K: " . ($usps ?: 'nincs megadva') . "
+
+GENERÁLJ PMax asset-eket:
+
+1. HEADLINES (15 db, max 30 kar) - változatos, különböző szögekből
+2. LONG HEADLINES (5 db, max 90 kar) - részletesebb üzenetek
+3. DESCRIPTIONS (5 db, max 90 kar)
+4. BUSINESS NAME variációk (3 db, max 25 kar)
+5. KÉP JAVASLATOK - milyen képeket kellene használni (típus, tartalom, hangulat)
+6. CÉLKÖZÖNSÉG javaslatok
+
+Válasz JSON:
+{
+    \"headlines\": [\"...\"],
+    \"long_headlines\": [\"...\"],
+    \"descriptions\": [\"...\"],
+    \"business_names\": [\"...\"],
+    \"image_suggestions\": [
+        {\"type\": \"landscape/square/portrait\", \"content\": \"mit ábrázoljon\", \"mood\": \"hangulat\"}
+    ],
+    \"audience_signals\": [\"...\"],
+    \"tips\": [\"...\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $data = parseJsonResponse($response);
+    
+    echo '<div class="pmax-results">';
+    echo '<h3>📦 PMax Asset-ek Elkészültek</h3>';
+    
+    // Headlines
+    if (!empty($data['headlines'])) {
+        echo '<div class="card"><h4>📝 Headlines (' . count($data['headlines']) . '/15)</h4>';
+        echo '<div class="asset-list">';
+        foreach ($data['headlines'] as $h) {
+            $len = mb_strlen($h);
+            echo '<div class="asset-item"><span>' . htmlspecialchars($h) . '</span><span class="char-count ' . ($len > 30 ? 'over' : '') . '">' . $len . '/30</span></div>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Long Headlines
+    if (!empty($data['long_headlines'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>📝 Long Headlines (' . count($data['long_headlines']) . '/5)</h4>';
+        echo '<div class="asset-list">';
+        foreach ($data['long_headlines'] as $h) {
+            $len = mb_strlen($h);
+            echo '<div class="asset-item"><span>' . htmlspecialchars($h) . '</span><span class="char-count ' . ($len > 90 ? 'over' : '') . '">' . $len . '/90</span></div>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Descriptions
+    if (!empty($data['descriptions'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>📝 Descriptions (' . count($data['descriptions']) . '/5)</h4>';
+        echo '<div class="asset-list">';
+        foreach ($data['descriptions'] as $d) {
+            $len = mb_strlen($d);
+            echo '<div class="asset-item"><span>' . htmlspecialchars($d) . '</span><span class="char-count ' . ($len > 90 ? 'over' : '') . '">' . $len . '/90</span></div>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Image suggestions
+    if (!empty($data['image_suggestions'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>🖼️ Kép Javaslatok</h4>';
+        echo '<div class="image-suggestions">';
+        foreach ($data['image_suggestions'] as $img) {
+            echo '<div class="img-suggestion">';
+            echo '<span class="img-type">' . htmlspecialchars($img['type']) . '</span>';
+            echo '<p><strong>Tartalom:</strong> ' . htmlspecialchars($img['content']) . '</p>';
+            echo '<p><strong>Hangulat:</strong> ' . htmlspecialchars($img['mood']) . '</p>';
+            echo '</div>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Audience
+    if (!empty($data['audience_signals'])) {
+        echo '<div class="card" style="margin-top:16px"><h4>🎯 Célközönség Javaslatok</h4><div class="tags-list">';
+        foreach ($data['audience_signals'] as $a) echo '<span class="tag tag-blue">' . htmlspecialchars($a) . '</span>';
+        echo '</div></div>';
+    }
+    
+    // Tips
+    if (!empty($data['tips'])) {
+        echo '<div class="card card-tips" style="margin-top:16px"><h4>💡 PMax Tippek</h4><ul>';
+        foreach ($data['tips'] as $t) echo '<li>' . htmlspecialchars($t) . '</li>';
+        echo '</ul></div>';
+    }
+    
+    echo '</div>';
+}
+
+// === INDUSTRY GENERATOR ===
+function handleGenerateIndustry(): void {
+    $name = Security::sanitizeInput($_POST['name'] ?? '', 'string');
+    $description = $_POST['description'] ?? '';
+    $icon = $_POST['icon'] ?? '🏢';
+    
+    if (empty($name)) {
+        echo json_encode(['success' => false, 'error' => 'Név megadása kötelező']);
+        return;
+    }
+    
+    $prompt = "Generálj egy teljes iparág konfigurációt egy magyar Google Ads kampány kezelő rendszerhez.
+
+IPARÁG: $name
+" . ($description ? "LEÍRÁS: $description\n" : "") . "
+
+Generálj MAGYAR nyelven:
+1. 8-10 USP (egyedi értékesítési pont) - amik jól működnek hirdetésekben
+2. Benchmark adatok (CPA, CPC - magyar piacra)
+3. 15-20 negatív kulcsszó - amiket ki kell zárni
+4. 10-15 javasolt kulcsszó
+5. 5-8 agresszív headline sablon
+
+Válasz JSON:
+{
+    \"key\": \"" . strtolower(preg_replace('/[^a-z0-9]/i', '', $name)) . "\",
+    \"name\": \"$name\",
+    \"icon\": \"$icon\",
+    \"usps\": [
+        {\"id\": \"usp1\", \"text\": \"...\", \"impact\": \"high/medium\"}
+    ],
+    \"benchmarks\": {
+        \"cpa_budapest\": \"X-Y.000 Ft\",
+        \"cpa_videk\": \"X-Y.000 Ft\",
+        \"cpc\": \"XXX-XXX Ft\",
+        \"conversion_rate\": \"X-Y%\",
+        \"daily_budget_min\": 5000,
+        \"daily_budget_recommended\": 15000,
+        \"daily_budget_max\": 50000
+    },
+    \"negative_keywords\": [\"...\"],
+    \"suggested_keywords\": [\"...\"],
+    \"headline_templates\": [\"...\"]
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $industryData = parseJsonResponse($response);
+    
+    if (empty($industryData['key'])) {
+        echo json_encode(['success' => false, 'error' => 'AI nem tudta generálni']);
+        return;
+    }
+    
+    // Mentés custom_industries.json-be
+    $customFile = __DIR__ . '/data/custom_industries.json';
+    $customs = [];
+    if (file_exists($customFile)) {
+        $customs = json_decode(file_get_contents($customFile), true) ?: [];
+    }
+    
+    $customs[$industryData['key']] = $industryData;
+    file_put_contents($customFile, json_encode($customs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    
+    echo json_encode(['success' => true, 'industry' => $industryData]);
+}
+
+function handleDeleteIndustry(): void {
+    $key = Security::sanitizeInput($_POST['key'] ?? '', 'alphanumeric');
+    
+    $customFile = __DIR__ . '/data/custom_industries.json';
+    if (!file_exists($customFile)) {
+        echo json_encode(['success' => false]);
+        return;
+    }
+    
+    $customs = json_decode(file_get_contents($customFile), true) ?: [];
+    if (isset($customs[$key])) {
+        unset($customs[$key]);
+        file_put_contents($customFile, json_encode($customs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    }
+    
+    echo json_encode(['success' => true]);
 }
 
 // === GENERATE ALL - WIZARD HANDLER ===
