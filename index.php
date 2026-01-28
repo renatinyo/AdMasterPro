@@ -35,7 +35,7 @@ $clientManager = new ClientManager();
 $api_key_valid = !empty(ANTHROPIC_API_KEY) && strlen(ANTHROPIC_API_KEY) > 20;
 
 // Aktuális tab
-$tab = $_GET['tab'] ?? 'wizard';
+$tab = $_GET['tab'] ?? 'assistant';
 
 // Wizard session
 $wizard = $_SESSION['wizard'] ?? [
@@ -92,14 +92,18 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                     <span class="version">v<?= APP_VERSION ?></span>
                 </div>
                 <nav class="main-nav">
+                    <a href="?tab=assistant" class="nav-link <?= $tab === 'assistant' ? 'active' : '' ?>">💬 Asszisztens</a>
                     <a href="?tab=wizard" class="nav-link <?= $tab === 'wizard' ? 'active' : '' ?>">🚀 Kampány</a>
+                    <a href="?tab=publish" class="nav-link <?= $tab === 'publish' ? 'active' : '' ?>">📤 Közzététel</a>
+                    <a href="?tab=simulator" class="nav-link <?= $tab === 'simulator' ? 'active' : '' ?>">💸 Szimulátor</a>
+                    <a href="?tab=diagnosis" class="nav-link <?= $tab === 'diagnosis' ? 'active' : '' ?>">🧠 Diagnózis</a>
                     <a href="?tab=clients" class="nav-link <?= $tab === 'clients' ? 'active' : '' ?>">🏢 Ügyfelek</a>
                     <a href="?tab=keywords" class="nav-link <?= $tab === 'keywords' ? 'active' : '' ?>">🔤 Kulcsszavak</a>
                     <a href="?tab=competitors" class="nav-link <?= $tab === 'competitors' ? 'active' : '' ?>">🔍 Versenytárs</a>
                     <a href="?tab=landing" class="nav-link <?= $tab === 'landing' ? 'active' : '' ?>">🌐 Landing</a>
                     <a href="?tab=pmax" class="nav-link <?= $tab === 'pmax' ? 'active' : '' ?>">📦 PMax</a>
                     <a href="?tab=industries" class="nav-link <?= $tab === 'industries' ? 'active' : '' ?>">🏭 Iparágak</a>
-                    <a href="?tab=strategies" class="nav-link <?= $tab === 'strategies' ? 'active' : '' ?>">🧠 Stratégiák</a>
+                    <a href="?tab=strategies" class="nav-link <?= $tab === 'strategies' ? 'active' : '' ?>">📋 Stratégiák</a>
                 </nav>
                 <div class="header-right">
                     <?php if (DEMO_MODE): ?><span class="badge badge-warning">Demo</span><?php endif; ?>
@@ -111,7 +115,85 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     <main>
         <div class="container">
 
-<?php if ($tab === 'wizard'): ?>
+<?php if ($tab === 'assistant'): ?>
+<!-- ==================== AI ASSZISZTENS TAB ==================== -->
+
+    <section class="page-section assistant-section">
+        <div class="assistant-hero">
+            <div class="hero-icon">🤖</div>
+            <h1>AI Kampány Asszisztens</h1>
+            <p>Mondd el mit szeretnél hirdetni, én megtervezem a kampányodat!</p>
+        </div>
+        
+        <div class="assistant-container">
+            <!-- Chat interface -->
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant">
+                        <div class="message-avatar">
+                            <span class="avatar-icon">🤖</span>
+                        </div>
+                        <div class="message-bubble">
+                            <div class="message-sender">AdMaster AI</div>
+                            <p>Szia! 👋 Írd le <strong>mit szeretnél hirdetni</strong>, és segítek megtervezni a kampányodat!</p>
+                            <div class="quick-prompts">
+                                <p class="prompts-label">Próbáld ki:</p>
+                                <button class="quick-prompt" onclick="useExample(this)">
+                                    <span class="prompt-icon">🔧</span>
+                                    <span>Vízszerelő cégem van Budapesten</span>
+                                </button>
+                                <button class="quick-prompt" onclick="useExample(this)">
+                                    <span class="prompt-icon">📹</span>
+                                    <span>Biztonsági kamerákat telepítünk</span>
+                                </button>
+                                <button class="quick-prompt" onclick="useExample(this)">
+                                    <span class="prompt-icon">🚿</span>
+                                    <span>Duguláselhárítás 0-24</span>
+                                </button>
+                                <button class="quick-prompt" onclick="useExample(this)">
+                                    <span class="prompt-icon">💇</span>
+                                    <span>Fodrász szalon a 13. kerületben</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chat-input-wrapper">
+                    <form id="chatForm" class="chat-input-container">
+                        <?= Security::csrfField() ?>
+                        <input type="hidden" name="action" value="assistant_chat">
+                        <div class="input-area">
+                            <textarea name="message" id="chatInput" class="chat-input" placeholder="Írd le az üzleted és céljaid..." rows="1"></textarea>
+                            <button type="submit" class="chat-send-btn" id="chatSendBtn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="input-hint">Enter = küldés | Shift+Enter = új sor</div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Sidebar: Generated suggestions -->
+            <div class="assistant-sidebar" id="assistantSidebar">
+                <div class="sidebar-empty">
+                    <div class="empty-icon">💡</div>
+                    <h3>Kampány Javaslatok</h3>
+                    <p>Itt jelennek meg az AI által generált kampány elemek</p>
+                    <ul class="feature-list">
+                        <li>📝 Headlines & Descriptions</li>
+                        <li>🔤 Kulcsszó javaslatok</li>
+                        <li>💰 Költségbecslés</li>
+                        <li>🎯 Stratégiai tippek</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+<?php elseif ($tab === 'wizard'): ?>
 <!-- ==================== WIZARD TAB ==================== -->
 
     <!-- Progress Bar -->
@@ -297,9 +379,28 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                     </div>
                     
                     <div class="card">
-                        <h3 class="card-title">🔥 Extra Címsorok</h3>
-                        <p class="help-text">Agresszívabb, figyelemfelkeltő szövegek</p>
+                        <h3 class="card-title">🔥 Hangnem & Stílus</h3>
                         
+                        <!-- Aggresszivitás Csúszka -->
+                        <div class="aggressiveness-slider">
+                            <label class="slider-label">Headline stílus:</label>
+                            <div class="slider-container">
+                                <input type="range" name="aggressiveness" id="aggressivenessSlider" min="1" max="3" value="2" class="slider">
+                                <div class="slider-labels">
+                                    <span class="slider-opt" data-val="1">😌 Soft</span>
+                                    <span class="slider-opt active" data-val="2">😐 Balanced</span>
+                                    <span class="slider-opt" data-val="3">😈 Aggressive</span>
+                                </div>
+                            </div>
+                            <div class="slider-preview" id="sliderPreview">
+                                <span class="preview-label">Példa:</span>
+                                <span class="preview-text" id="previewText">"Professzionális Duguláselhárítás"</span>
+                            </div>
+                        </div>
+                        
+                        <div class="divider"></div>
+                        
+                        <p class="help-text">Extra elemek:</p>
                         <label class="checkbox-label">
                             <input type="checkbox" name="extra_aggressive" value="1" checked>
                             <span>⚡ Sürgősségre ösztönző</span>
@@ -312,6 +413,11 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                             <input type="checkbox" name="extra_price" value="1">
                             <span>💰 Ár-központú</span>
                         </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="use_dki" value="1" checked>
+                            <span>🔄 Dynamic Keyword Insertion</span>
+                        </label>
+                        <p class="help-text" style="margin-left:24px;font-size:11px;">Pl: {KeyWord:Duguláselhárítás} - a keresett kulcsszó behelyettesítődik</p>
                         
                         <?php 
                         // Bevált saját headline-ok
@@ -344,7 +450,542 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     </section>
     
     <div id="results"></div>
+    
+    <!-- Utolsó eredmény betöltése ha van -->
+    <?php
+    $lastResultFile = __DIR__ . '/data/last_result.json';
+    $lastResult = file_exists($lastResultFile) ? json_decode(file_get_contents($lastResultFile), true) : null;
+    if ($lastResult && !empty($lastResult['headlines'])):
+    ?>
+    <div class="card last-result-card">
+        <div class="last-result-header">
+            <h3 class="card-title">📋 Utolsó Generált Kampány</h3>
+            <span class="last-result-meta">
+                <?= htmlspecialchars($lastResult['company'] ?? '') ?> | 
+                <?= htmlspecialchars($lastResult['industry'] ?? '') ?> | 
+                <?= $lastResult['lastUpdate'] ?? '' ?>
+            </span>
+        </div>
+        
+        <div class="last-result-content">
+            <div class="result-section">
+                <h4>📝 Headlines (<?= count($lastResult['headlines']) ?>)</h4>
+                <div class="copy-list compact scrollable">
+                    <?php foreach ($lastResult['headlines'] as $h): ?>
+                    <div class="copy-item"><span><?= htmlspecialchars($h) ?></span><small><?= mb_strlen($h) ?>/30</small></div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            
+            <?php if (!empty($lastResult['descriptions'])): ?>
+            <div class="result-section">
+                <h4>📝 Descriptions (<?= count($lastResult['descriptions']) ?>)</h4>
+                <div class="copy-list compact scrollable">
+                    <?php foreach ($lastResult['descriptions'] as $d): ?>
+                    <div class="copy-item"><span><?= htmlspecialchars($d) ?></span><small><?= mb_strlen($d) ?>/90</small></div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($lastResult['callonly'])): ?>
+            <div class="result-section">
+                <h4>📞 Call-Only (<?= count($lastResult['callonly']) ?>)</h4>
+                <?php foreach (array_slice($lastResult['callonly'], 0, 3) as $ad): ?>
+                <div class="callonly-box compact">
+                    <div class="co-name"><?= htmlspecialchars($ad['business'] ?? '') ?></div>
+                    <div class="co-desc"><?= htmlspecialchars($ad['desc1'] ?? '') ?></div>
+                    <div class="co-desc"><?= htmlspecialchars($ad['desc2'] ?? '') ?></div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+            
+            <?php if (!empty($lastResult['keywords'])): ?>
+            <div class="result-section">
+                <h4>🔤 Kulcsszavak</h4>
+                <div class="tags-list">
+                    <?php foreach ($lastResult['keywords'] as $k): ?>
+                    <span class="tag"><?= htmlspecialchars(is_array($k) ? $k['keyword'] : $k) ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+        
+        <div class="last-result-actions">
+            <button class="btn btn-secondary" onclick="copyAllHeadlines()">📋 Headlines</button>
+            <button class="btn btn-secondary" onclick="copyAllDescriptions()">📋 Descriptions</button>
+            <a href="?tab=publish" class="btn btn-secondary">📤 Közzététel</a>
+            <button class="btn btn-primary" onclick="document.getElementById('generateBtn').scrollIntoView({behavior:'smooth'}); document.getElementById('generateBtn').classList.add('pulse');">🔄 Új Generálás</button>
+        </div>
+    </div>
+    
+    <script>
+    function copyAllHeadlines() {
+        const headlines = <?= json_encode($lastResult['headlines']) ?>;
+        navigator.clipboard.writeText(headlines.join('\n')).then(() => alert('✅ Headlines másolva!'));
+    }
+    function copyAllDescriptions() {
+        const descriptions = <?= json_encode($lastResult['descriptions'] ?? []) ?>;
+        navigator.clipboard.writeText(descriptions.join('\n')).then(() => alert('✅ Descriptions másolva!'));
+    }
+    </script>
     <?php endif; ?>
+    
+    <!-- ELŐZMÉNYEK SZEKCIÓ -->
+    <?php
+    $historyFile = __DIR__ . '/data/generation_history.json';
+    $history = file_exists($historyFile) ? json_decode(file_get_contents($historyFile), true) : [];
+    if (is_array($history) && count($history) > 1):
+    ?>
+    <div class="card history-card">
+        <div class="history-header">
+            <h3 class="card-title">📚 Korábbi Generálások</h3>
+            <span class="history-count"><?= count($history) ?> db mentve</span>
+        </div>
+        <div class="history-list">
+            <?php foreach (array_slice($history, 1, 10) as $idx => $item): ?>
+            <div class="history-item" onclick="loadHistory(<?= $idx + 1 ?>)">
+                <div class="history-info">
+                    <strong><?= htmlspecialchars($item['company'] ?? 'Névtelen') ?></strong>
+                    <span class="history-meta"><?= htmlspecialchars($item['industry'] ?? '') ?> • <?= $item['lastUpdate'] ?? '' ?></span>
+                </div>
+                <div class="history-stats">
+                    <span class="stat"><?= count($item['headlines'] ?? []) ?> headline</span>
+                    <span class="stat"><?= count($item['descriptions'] ?? []) ?> desc</span>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    
+    <script>
+    function loadHistory(idx) {
+        const history = <?= json_encode($history) ?>;
+        const item = history[idx];
+        if (!item) return;
+        
+        // Betöltjük a modal-ba vagy egyből megjelenítjük
+        let html = '<div class="modal-backdrop" onclick="closeHistoryModal()"></div>';
+        html += '<div class="history-modal">';
+        html += '<div class="modal-header"><h3>📋 ' + (item.company || 'Generálás') + '</h3><button onclick="closeHistoryModal()">✕</button></div>';
+        html += '<div class="modal-body">';
+        
+        // Headlines
+        html += '<h4>📝 Headlines (' + item.headlines.length + ')</h4><div class="copy-list compact">';
+        item.headlines.forEach(h => {
+            html += '<div class="copy-item"><span>' + h + '</span><small>' + h.length + '/30</small></div>';
+        });
+        html += '</div>';
+        
+        // Descriptions
+        if (item.descriptions && item.descriptions.length) {
+            html += '<h4 style="margin-top:16px">📝 Descriptions (' + item.descriptions.length + ')</h4><div class="copy-list compact">';
+            item.descriptions.forEach(d => {
+                html += '<div class="copy-item"><span>' + d + '</span><small>' + d.length + '/90</small></div>';
+            });
+            html += '</div>';
+        }
+        
+        html += '</div>';
+        html += '<div class="modal-footer">';
+        html += '<button class="btn btn-secondary" onclick="copyHistoryHeadlines(' + idx + ')">📋 Headlines Másolása</button>';
+        html += '<button class="btn btn-secondary" onclick="closeHistoryModal()">Bezárás</button>';
+        html += '</div>';
+        html += '</div>';
+        
+        document.body.insertAdjacentHTML('beforeend', html);
+    }
+    
+    function closeHistoryModal() {
+        document.querySelector('.modal-backdrop')?.remove();
+        document.querySelector('.history-modal')?.remove();
+    }
+    
+    function copyHistoryHeadlines(idx) {
+        const history = <?= json_encode($history) ?>;
+        const item = history[idx];
+        if (item && item.headlines) {
+            navigator.clipboard.writeText(item.headlines.join('\n')).then(() => alert('✅ Headlines másolva!'));
+        }
+    }
+    </script>
+    <?php endif; ?>
+    <?php endif; ?>
+
+<?php elseif ($tab === 'publish'): ?>
+<!-- ==================== GOOGLE ADS KÖZZÉTÉTEL TAB ==================== -->
+
+    <?php 
+    require_once __DIR__ . '/includes/GoogleAdsManager.php';
+    $gadsManager = new GoogleAdsManager();
+    $gadsConfigured = $gadsManager->isConfigured();
+    
+    // Utolsó generált adatok betöltése
+    $extensionDataFile = __DIR__ . '/data/extension_data.json';
+    $lastGenerated = file_exists($extensionDataFile) ? json_decode(file_get_contents($extensionDataFile), true) : null;
+    ?>
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>📤 Google Ads Közzététel</h2>
+        </div>
+        
+        <?php if (!$gadsConfigured): ?>
+        <!-- Nincs konfigurálva -->
+        <div class="card card-warning">
+            <h3 class="card-title">⚠️ Google Ads API Nincs Beállítva</h3>
+            <p>A közvetlen közzétételhez állítsd be a Google Ads API hitelesítést.</p>
+            
+            <div class="setup-steps">
+                <h4>Beállítás lépései:</h4>
+                <ol>
+                    <li>Hozz létre egy projektet a <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a>-ban</li>
+                    <li>Engedélyezd a Google Ads API-t</li>
+                    <li>Hozz létre OAuth2 credentials-t (Web application)</li>
+                    <li>Igényelj Developer Token-t a <a href="https://ads.google.com/aw/apicenter" target="_blank">Google Ads API Center</a>-ben</li>
+                    <li>Add meg a következő értékeket a <code>config.php</code>-ban:</li>
+                </ol>
+                
+                <pre class="code-block">
+define('GOOGLE_ADS_DEVELOPER_TOKEN', 'xxx');
+define('GOOGLE_ADS_CLIENT_ID', 'xxx.apps.googleusercontent.com');
+define('GOOGLE_ADS_CLIENT_SECRET', 'xxx');
+define('GOOGLE_ADS_REFRESH_TOKEN', 'xxx');</pre>
+                
+                <p class="help-text">A Refresh Token megszerzéséhez használd az OAuth2 flow-t.</p>
+            </div>
+        </div>
+        
+        <?php else: ?>
+        <!-- Konfigurálva van -->
+        
+        <?php if (empty($lastGenerated) || empty($lastGenerated['headlines'])): ?>
+        <div class="alert alert-warning">
+            ⚠️ Nincs közzétételre váró tartalom. Először <a href="?tab=wizard">generálj egy kampányt</a>!
+        </div>
+        <?php else: ?>
+        
+        <div class="publish-layout">
+            <!-- Bal oldal: Közzétételre váró tartalom -->
+            <div class="publish-content">
+                <div class="card">
+                    <h3 class="card-title">📋 Közzétételre Váró Tartalom</h3>
+                    <p class="help-text">Utolsó generálás: <?= $lastGenerated['lastUpdate'] ?? 'n/a' ?> 
+                        <?php if (!empty($lastGenerated['company'])): ?>
+                        | <?= htmlspecialchars($lastGenerated['company']) ?>
+                        <?php endif; ?>
+                    </p>
+                    
+                    <div class="content-preview">
+                        <h4>📝 Headlines (<?= count($lastGenerated['headlines']) ?>)</h4>
+                        <div class="preview-list">
+                            <?php foreach (array_slice($lastGenerated['headlines'], 0, 5) as $h): ?>
+                            <div class="preview-item"><?= htmlspecialchars($h) ?></div>
+                            <?php endforeach; ?>
+                            <?php if (count($lastGenerated['headlines']) > 5): ?>
+                            <div class="preview-more">+<?= count($lastGenerated['headlines']) - 5 ?> további...</div>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <h4>📝 Descriptions (<?= count($lastGenerated['descriptions']) ?>)</h4>
+                        <div class="preview-list">
+                            <?php foreach ($lastGenerated['descriptions'] as $d): ?>
+                            <div class="preview-item"><?= htmlspecialchars($d) ?></div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Jobb oldal: Cél kiválasztása -->
+            <div class="publish-target">
+                <div class="card">
+                    <h3 class="card-title">🎯 Publikálás Helye</h3>
+                    
+                    <form method="POST" action="api.php" id="publishForm">
+                        <?= Security::csrfField() ?>
+                        <input type="hidden" name="action" value="publish_to_google_ads">
+                        
+                        <div class="form-group">
+                            <label>Google Ads Fiók</label>
+                            <select name="customer_id" id="gadsAccount" class="form-control" required>
+                                <option value="">-- Betöltés... --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Kampány</label>
+                            <select name="campaign_id" id="gadsCampaign" class="form-control" required disabled>
+                                <option value="">-- Válassz fiókot először --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Ad Group</label>
+                            <select name="ad_group_id" id="gadsAdGroup" class="form-control" required disabled>
+                                <option value="">-- Válassz kampányt először --</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Landing Page URL *</label>
+                            <input type="url" name="final_url" class="form-control" placeholder="https://..." required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Display Path (opcionális)</label>
+                            <div class="path-inputs">
+                                <span>domain.hu/</span>
+                                <input type="text" name="path1" class="form-control-sm" placeholder="path1" maxlength="15">
+                                <span>/</span>
+                                <input type="text" name="path2" class="form-control-sm" placeholder="path2" maxlength="15">
+                            </div>
+                        </div>
+                        
+                        <div class="divider"></div>
+                        
+                        <div class="form-group">
+                            <label>Mit publikáljunk?</label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="publish_rsa" value="1" checked>
+                                <span>📝 RSA Hirdetés (Headlines + Descriptions)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="publish_keywords" value="1">
+                                <span>🔤 Kulcsszavak</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="publish_negatives" value="1">
+                                <span>🚫 Negatív kulcsszavak</span>
+                            </label>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            ℹ️ A hirdetés PAUSED állapotban kerül feltöltésre biztonsági okokból.
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary btn-lg" id="publishBtn">
+                            📤 Közzététel a Google Ads-ban
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <?php endif; ?>
+        <?php endif; ?>
+        
+        <div id="publishResults"></div>
+    </section>
+
+<?php elseif ($tab === 'simulator'): ?>
+<!-- ==================== KAMPÁNY SZIMULÁTOR TAB ==================== -->
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>💸 Kampány Szimulátor</h2>
+        </div>
+        
+        <div class="simulator-container">
+            <div class="card">
+                <h3 class="card-title">📊 Budget & Becslések</h3>
+                <p class="help-text">Add meg a paramétereket és számoljuk ki a várható eredményeket</p>
+                
+                <form id="simulatorForm">
+                    <div class="form-columns">
+                        <div class="form-column">
+                            <div class="form-group">
+                                <label>Iparág</label>
+                                <select name="industry" id="simIndustry" class="form-control" required>
+                                    <option value="">-- Válassz --</option>
+                                    <?php foreach ($industries as $key => $ind): ?>
+                                    <option value="<?= $key ?>" 
+                                        data-cpc-min="<?= $ind['benchmarks']['cpc_min'] ?? 150 ?>"
+                                        data-cpc-max="<?= $ind['benchmarks']['cpc_max'] ?? 400 ?>"
+                                        data-cvr="<?= $ind['benchmarks']['conversion_rate'] ?? 5 ?>"
+                                        data-cpa="<?= preg_replace('/[^0-9]/', '', $ind['benchmarks']['cpa_budapest'] ?? '8000') ?>">
+                                        <?= $ind['icon'] ?> <?= $ind['name'] ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Napi költségkeret (Ft)</label>
+                                <input type="number" name="daily_budget" id="simDailyBudget" class="form-control" value="15000" min="1000" step="1000">
+                                <div class="budget-presets">
+                                    <button type="button" class="preset-btn" data-val="5000">5k</button>
+                                    <button type="button" class="preset-btn" data-val="10000">10k</button>
+                                    <button type="button" class="preset-btn active" data-val="15000">15k</button>
+                                    <button type="button" class="preset-btn" data-val="25000">25k</button>
+                                    <button type="button" class="preset-btn" data-val="50000">50k</button>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Kampány hossza (nap)</label>
+                                <input type="number" name="days" id="simDays" class="form-control" value="30" min="1" max="365">
+                            </div>
+                        </div>
+                        
+                        <div class="form-column">
+                            <div class="form-group">
+                                <label>Átlagos CPC (Ft) <span class="auto-filled">← iparágból</span></label>
+                                <input type="number" name="cpc" id="simCpc" class="form-control" value="250" min="50">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Konverziós ráta (%) <span class="auto-filled">← iparágból</span></label>
+                                <input type="number" name="cvr" id="simCvr" class="form-control" value="5" min="0.1" max="100" step="0.1">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Terület</label>
+                                <select name="area" class="form-control">
+                                    <option value="budapest">Budapest (magasabb CPC)</option>
+                                    <option value="videk">Vidék (alacsonyabb CPC)</option>
+                                    <option value="mixed">Vegyes</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary btn-lg" id="runSimulation">📊 Szimuláció Futtatása</button>
+                </form>
+            </div>
+            
+            <!-- Eredmények -->
+            <div id="simulatorResults" class="simulator-results hidden">
+                <div class="sim-results-grid">
+                    <div class="sim-result-card">
+                        <div class="sim-icon">💰</div>
+                        <div class="sim-value" id="simTotalBudget">0</div>
+                        <div class="sim-label">Teljes költség</div>
+                    </div>
+                    <div class="sim-result-card">
+                        <div class="sim-icon">👆</div>
+                        <div class="sim-value" id="simClicks">0</div>
+                        <div class="sim-label">Várható kattintás</div>
+                    </div>
+                    <div class="sim-result-card highlight">
+                        <div class="sim-icon">📞</div>
+                        <div class="sim-value" id="simLeads">0</div>
+                        <div class="sim-label">Várható lead</div>
+                    </div>
+                    <div class="sim-result-card">
+                        <div class="sim-icon">🎯</div>
+                        <div class="sim-value" id="simCpa">0</div>
+                        <div class="sim-label">Lead ára (CPA)</div>
+                    </div>
+                </div>
+                
+                <div id="simVerdict" class="sim-verdict"></div>
+                
+                <div class="sim-breakdown">
+                    <h4>📈 Részletes bontás</h4>
+                    <table class="sim-table">
+                        <tr><td>Napi költés</td><td id="simDailySpend">-</td></tr>
+                        <tr><td>Napi kattintás</td><td id="simDailyClicks">-</td></tr>
+                        <tr><td>Napi lead</td><td id="simDailyLeads">-</td></tr>
+                        <tr><td>Havi költés</td><td id="simMonthlySpend">-</td></tr>
+                        <tr><td>Havi lead</td><td id="simMonthlyLeads">-</td></tr>
+                    </table>
+                </div>
+                
+                <div class="sim-recommendations" id="simRecommendations"></div>
+            </div>
+        </div>
+    </section>
+
+<?php elseif ($tab === 'diagnosis'): ?>
+<!-- ==================== DIAGNÓZIS TAB ==================== -->
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>🧠 "Miért Nem Hoz Leadet?" - AI Diagnózis</h2>
+        </div>
+        
+        <div class="diagnosis-intro">
+            <p>Az AI átfogó elemzést készít a kampányodról és megmondja, <strong>miért nem teljesít</strong> és <strong>mit javíts</strong>.</p>
+        </div>
+        
+        <div class="card">
+            <h3 class="card-title">🔍 Kampány Adatok</h3>
+            
+            <form method="POST" action="api.php" id="diagnosisForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="run_diagnosis">
+                
+                <div class="form-columns">
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Iparág *</label>
+                            <select name="industry" class="form-control" required>
+                                <option value="">-- Válassz --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Landing Page URL</label>
+                            <input type="url" name="landing_url" class="form-control" placeholder="https://...">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Jelenlegi Headlines (soronként)</label>
+                            <textarea name="headlines" class="form-control" rows="4" placeholder="Headline 1&#10;Headline 2&#10;..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Kulcsszavak (soronként)</label>
+                            <textarea name="keywords" class="form-control" rows="4" placeholder="kulcsszó 1&#10;kulcsszó 2&#10;..."></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Jelenlegi teljesítmény</label>
+                            <div class="inline-inputs">
+                                <div>
+                                    <label class="small-label">Kattintás/hó</label>
+                                    <input type="number" name="clicks" class="form-control" placeholder="pl. 500">
+                                </div>
+                                <div>
+                                    <label class="small-label">Lead/hó</label>
+                                    <input type="number" name="leads" class="form-control" placeholder="pl. 10">
+                                </div>
+                                <div>
+                                    <label class="small-label">Költés/hó</label>
+                                    <input type="number" name="spend" class="form-control" placeholder="pl. 150000">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Bid stratégia</label>
+                            <select name="bid_strategy" class="form-control">
+                                <option value="">-- Nem tudom --</option>
+                                <option value="maximize_conversions">Konverzió maximalizálás</option>
+                                <option value="target_cpa">Cél CPA</option>
+                                <option value="maximize_clicks">Kattintás maximalizálás</option>
+                                <option value="manual_cpc">Manuális CPC</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-lg" id="runDiagnosisBtn">
+                    🔍 Diagnózis Futtatása
+                </button>
+            </form>
+        </div>
+        
+        <div id="diagnosisResults"></div>
+    </section>
 
 <?php elseif ($tab === 'clients'): ?>
 <!-- ==================== ÜGYFELEK TAB ==================== -->
@@ -938,13 +1579,74 @@ Hirdetés 2:
 <?php elseif ($tab === 'landing'): ?>
 <!-- ==================== LANDING PAGE TAB ==================== -->
 
+    <?php 
+    require_once __DIR__ . '/includes/VisionAnalyzer.php';
+    $visionAnalyzer = new VisionAnalyzer();
+    $visionConfigured = $visionAnalyzer->isConfigured();
+    ?>
+
     <section class="page-section">
         <div class="section-header">
             <h2>🌐 Landing Page Elemző & Szövegíró</h2>
         </div>
         
+        <!-- AI Vision elemzés - ÚJ! -->
+        <div class="card card-premium">
+            <div class="premium-badge">🤖 AI Vision</div>
+            <h3 class="card-title">👁️ Vizuális UX Elemzés</h3>
+            <p class="help-text">Az AI <strong>látja</strong> az oldaladat és UX/UI szempontból elemzi - észreveszi amit a kód nem tud!</p>
+            
+            <?php if (!$visionConfigured): ?>
+            <div class="alert alert-warning">
+                ⚠️ Screenshot API nincs konfigurálva. Add meg a <code>SCREENSHOT_API_KEY</code>-t a config.php-ban.
+                <br><small>Ajánlott: <a href="https://screenshotmachine.com" target="_blank">screenshotmachine.com</a> (ingyenes szint elérhető)</small>
+            </div>
+            <?php endif; ?>
+            
+            <form method="POST" action="api.php" id="visionForm">
+                <?= Security::csrfField() ?>
+                <input type="hidden" name="action" value="analyze_landing_vision">
+                
+                <div class="form-columns">
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Landing Page URL *</label>
+                            <input type="url" name="url" class="form-control" placeholder="https://..." required>
+                        </div>
+                    </div>
+                    <div class="form-column">
+                        <div class="form-group">
+                            <label>Iparág (pontosabb elemzéshez)</label>
+                            <select name="industry" class="form-control">
+                                <option value="">-- Válassz --</option>
+                                <?php foreach ($industries as $key => $ind): ?>
+                                <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="vision-features">
+                    <span class="feature-tag">👁️ Látja a designt</span>
+                    <span class="feature-tag">🎯 CTA pozíció elemzés</span>
+                    <span class="feature-tag">📱 Mobil becslés</span>
+                    <span class="feature-tag">🎨 Szín kontraszt</span>
+                    <span class="feature-tag">📍 Figyelem flow</span>
+                </div>
+                
+                <button type="submit" class="btn btn-premium btn-lg" id="visionBtn" <?= !$visionConfigured ? 'disabled' : '' ?>>
+                    👁️ AI Vision Elemzés
+                </button>
+            </form>
+            
+            <div id="visionResults"></div>
+        </div>
+        
+        <div class="divider-text"><span>vagy</span></div>
+        
         <div class="card">
-            <h3 class="card-title">🔍 Technikai + CRO Audit</h3>
+            <h3 class="card-title">🔍 Technikai + CRO Audit (kód alapú)</h3>
             <p class="help-text">Elemezzük a landing page-et technikailag ÉS tartalmilag, konkrét átírási javaslatokkal</p>
             
             <form method="POST" action="api.php" id="landingForm">
@@ -994,7 +1696,7 @@ Hirdetés 2:
                     </div>
                 </div>
                 
-                <button type="submit" class="btn btn-primary btn-lg" id="landingBtn">🔍 Teljes Elemzés Indítása</button>
+                <button type="submit" class="btn btn-primary btn-lg" id="landingBtn">🔍 Technikai Elemzés</button>
             </form>
         </div>
         
@@ -1334,16 +2036,28 @@ Hirdetés 2:
             
             try {
                 const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
-                const data = await resp.json();
-                if (data.success) {
-                    alert(`✅ ${data.added} kulcsszó mentve (${data.total - data.added} már létezett)`);
-                    location.reload();
+                const text = await resp.text();
+                
+                // Próbáljuk JSON-ként parse-olni
+                try {
+                    const data = JSON.parse(text);
+                    if (data.success) {
+                        alert(`✅ ${data.added} kulcsszó mentve (${data.total - data.added} már létezett)`);
+                        location.reload();
+                    } else {
+                        alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+                    }
+                } catch (parseErr) {
+                    // Ha nem JSON, akkor HTML hiba
+                    console.error('Response:', text);
+                    alert('Hiba: ' + text.substring(0, 200));
                 }
             } catch (err) {
-                alert('Hiba: ' + err.message);
+                alert('Hálózati hiba: ' + err.message);
             }
             
             btn.disabled = false;
+            btn.innerHTML = btn.classList.contains('btn-danger') ? '🚫 Mentés' : '💾 Mentés';
         });
     });
     
@@ -1545,6 +2259,538 @@ Hirdetés 2:
             });
         }
     }
+    
+    // Aggresszivitás csúszka
+    const aggrSlider = document.getElementById('aggressivenessSlider');
+    if (aggrSlider) {
+        const examples = {
+            1: '"Professzionális Duguláselhárítás Budapesten"',
+            2: '"Gyors Duguláselhárítás - 30 Percen Belül!"',
+            3: '"DUGULÁS?! 28 Perc és OTT VAGYUNK! 🚨"'
+        };
+        
+        aggrSlider.addEventListener('input', function() {
+            const val = this.value;
+            document.querySelectorAll('.slider-opt').forEach(opt => {
+                opt.classList.toggle('active', opt.dataset.val === val);
+            });
+            document.getElementById('previewText').textContent = examples[val];
+        });
+        
+        document.querySelectorAll('.slider-opt').forEach(opt => {
+            opt.addEventListener('click', function() {
+                aggrSlider.value = this.dataset.val;
+                aggrSlider.dispatchEvent(new Event('input'));
+            });
+        });
+    }
+    
+    // Szimulátor
+    const simIndustry = document.getElementById('simIndustry');
+    if (simIndustry) {
+        simIndustry.addEventListener('change', function() {
+            const opt = this.options[this.selectedIndex];
+            const cpcMin = opt.dataset.cpcMin || 150;
+            const cpcMax = opt.dataset.cpcMax || 400;
+            const cvr = opt.dataset.cvr || 5;
+            
+            document.getElementById('simCpc').value = Math.round((parseInt(cpcMin) + parseInt(cpcMax)) / 2);
+            document.getElementById('simCvr').value = cvr;
+        });
+    }
+    
+    // Budget presets
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById('simDailyBudget').value = this.dataset.val;
+        });
+    });
+    
+    // Run simulation
+    document.getElementById('runSimulation')?.addEventListener('click', function() {
+        const dailyBudget = parseInt(document.getElementById('simDailyBudget').value) || 15000;
+        const days = parseInt(document.getElementById('simDays').value) || 30;
+        const cpc = parseInt(document.getElementById('simCpc').value) || 250;
+        const cvr = parseFloat(document.getElementById('simCvr').value) || 5;
+        
+        // Calculations
+        const totalBudget = dailyBudget * days;
+        const totalClicks = Math.round(totalBudget / cpc);
+        const totalLeads = Math.round(totalClicks * (cvr / 100));
+        const cpa = totalLeads > 0 ? Math.round(totalBudget / totalLeads) : 0;
+        
+        const dailyClicks = Math.round(dailyBudget / cpc);
+        const dailyLeads = (dailyClicks * (cvr / 100)).toFixed(1);
+        const monthlySpend = dailyBudget * 30;
+        const monthlyLeads = Math.round((dailyBudget * 30 / cpc) * (cvr / 100));
+        
+        // Update UI
+        document.getElementById('simTotalBudget').textContent = totalBudget.toLocaleString('hu-HU') + ' Ft';
+        document.getElementById('simClicks').textContent = totalClicks.toLocaleString('hu-HU');
+        document.getElementById('simLeads').textContent = totalLeads.toLocaleString('hu-HU');
+        document.getElementById('simCpa').textContent = cpa.toLocaleString('hu-HU') + ' Ft';
+        
+        document.getElementById('simDailySpend').textContent = dailyBudget.toLocaleString('hu-HU') + ' Ft';
+        document.getElementById('simDailyClicks').textContent = dailyClicks + ' kattintás';
+        document.getElementById('simDailyLeads').textContent = dailyLeads + ' lead';
+        document.getElementById('simMonthlySpend').textContent = monthlySpend.toLocaleString('hu-HU') + ' Ft';
+        document.getElementById('simMonthlyLeads').textContent = monthlyLeads + ' lead';
+        
+        // Verdict
+        const verdictEl = document.getElementById('simVerdict');
+        let verdict = '', verdictClass = '';
+        
+        if (monthlyLeads < 5) {
+            verdict = '⚠️ Kevés lead várható. A büdzsé növelése vagy a konverziós ráta javítása szükséges!';
+            verdictClass = 'verdict-bad';
+        } else if (monthlyLeads < 15) {
+            verdict = '🟡 Elfogadható eredmény, de van tér a fejlődésre. Optimalizálással több lead érhető el.';
+            verdictClass = 'verdict-warning';
+        } else {
+            verdict = '✅ Jó kiindulópont! Ez a költségkeret már skálázható eredményeket hozhat.';
+            verdictClass = 'verdict-good';
+        }
+        
+        verdictEl.textContent = verdict;
+        verdictEl.className = 'sim-verdict ' + verdictClass;
+        
+        // Recommendations
+        const recsEl = document.getElementById('simRecommendations');
+        let recs = [];
+        
+        if (cpa > 10000) recs.push({ icon: '💰', text: 'A lead ár magas. Próbálj jobb minőségű kulcsszavakat!' });
+        if (dailyBudget < 10000) recs.push({ icon: '📈', text: 'Az alacsony napi büdzsé lassítja a tanulást. Minimum 10.000 Ft ajánlott.' });
+        if (cvr < 3) recs.push({ icon: '🌐', text: 'Alacsony konverziós ráta. Javítsd a landing page-et!' });
+        if (monthlyLeads >= 20) recs.push({ icon: '🚀', text: 'Jó alap! Fontold meg a büdzsé skálázását.' });
+        
+        recsEl.innerHTML = recs.map(r => `<div class="sim-rec-item"><span class="sim-rec-icon">${r.icon}</span>${r.text}</div>`).join('');
+        
+        document.getElementById('simulatorResults').classList.remove('hidden');
+        document.getElementById('simulatorResults').scrollIntoView({ behavior: 'smooth' });
+    });
+    
+    // Diagnosis form
+    document.getElementById('diagnosisForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('runDiagnosisBtn');
+        const results = document.getElementById('diagnosisResults');
+        
+        btn.innerHTML = '⏳ Diagnózis futtatása...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            results.innerHTML = await resp.text();
+            results.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '🔍 Diagnózis Futtatása';
+        btn.disabled = false;
+    });
+    
+    // Vision form
+    document.getElementById('visionForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('visionBtn');
+        const results = document.getElementById('visionResults');
+        
+        // URL validáció
+        const urlInput = this.querySelector('input[name="url"]');
+        if (!urlInput.value.trim()) {
+            results.innerHTML = '<div class="alert alert-error">❌ Add meg a landing page URL-t!</div>';
+            return;
+        }
+        
+        btn.innerHTML = '⏳ Screenshot készítése...';
+        btn.disabled = true;
+        results.innerHTML = '<div class="alert alert-info">🔄 Folyamatban... Ez akár 30 másodpercig is eltarthat.</div>';
+        
+        try {
+            const formData = new FormData(this);
+            
+            // Debug: ellenőrizzük a CSRF tokent
+            console.log('Vision form data:', {
+                action: formData.get('action'),
+                url: formData.get('url'),
+                csrf: formData.get('csrf_token') ? 'present' : 'MISSING'
+            });
+            
+            const resp = await fetch('api.php', { 
+                method: 'POST', 
+                body: formData 
+            });
+            
+            const text = await resp.text();
+            
+            // Ha JSON hiba jött vissza
+            if (text.startsWith('{') && text.includes('"error"')) {
+                try {
+                    const err = JSON.parse(text);
+                    results.innerHTML = '<div class="alert alert-error">❌ ' + (err.error || 'Ismeretlen hiba') + '</div>';
+                } catch (e) {
+                    results.innerHTML = text;
+                }
+            } else {
+                results.innerHTML = text;
+            }
+            
+            results.scrollIntoView({ behavior: 'smooth' });
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">❌ Hálózati hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '👁️ AI Vision Elemzés';
+        btn.disabled = false;
+    });
+    
+    // Google Ads Publish - Account loader
+    const gadsAccountSelect = document.getElementById('gadsAccount');
+    if (gadsAccountSelect) {
+        // Load accounts on page load
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'action=get_gads_accounts'
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.accounts.length > 0) {
+                gadsAccountSelect.innerHTML = '<option value="">-- Válassz fiókot --</option>';
+                data.accounts.forEach(acc => {
+                    gadsAccountSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
+                });
+            } else {
+                gadsAccountSelect.innerHTML = '<option value="">Nincs elérhető fiók</option>';
+            }
+        })
+        .catch(() => {
+            gadsAccountSelect.innerHTML = '<option value="">Hiba a betöltéskor</option>';
+        });
+        
+        // Load campaigns when account changes
+        gadsAccountSelect.addEventListener('change', function() {
+            const campaignSelect = document.getElementById('gadsCampaign');
+            const adGroupSelect = document.getElementById('gadsAdGroup');
+            
+            campaignSelect.disabled = true;
+            adGroupSelect.disabled = true;
+            campaignSelect.innerHTML = '<option value="">Betöltés...</option>';
+            
+            if (!this.value) return;
+            
+            fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `action=get_gads_campaigns&customer_id=${this.value}`
+            })
+            .then(r => r.json())
+            .then(data => {
+                campaignSelect.innerHTML = '<option value="">-- Válassz kampányt --</option>';
+                if (data.campaigns) {
+                    data.campaigns.forEach(c => {
+                        campaignSelect.innerHTML += `<option value="${c.id}">${c.name} (${c.status})</option>`;
+                    });
+                }
+                campaignSelect.disabled = false;
+            });
+        });
+        
+        // Load ad groups when campaign changes
+        document.getElementById('gadsCampaign')?.addEventListener('change', function() {
+            const adGroupSelect = document.getElementById('gadsAdGroup');
+            const customerId = gadsAccountSelect.value;
+            
+            adGroupSelect.disabled = true;
+            adGroupSelect.innerHTML = '<option value="">Betöltés...</option>';
+            
+            if (!this.value || !customerId) return;
+            
+            fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `action=get_gads_adgroups&customer_id=${customerId}&campaign_id=${this.value}`
+            })
+            .then(r => r.json())
+            .then(data => {
+                adGroupSelect.innerHTML = '<option value="">-- Válassz Ad Group-ot --</option>';
+                if (data.adGroups) {
+                    data.adGroups.forEach(ag => {
+                        adGroupSelect.innerHTML += `<option value="${ag.id}">${ag.name}</option>`;
+                    });
+                }
+                adGroupSelect.disabled = false;
+            });
+        });
+    }
+    
+    // Publish form
+    document.getElementById('publishForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('publishBtn');
+        const results = document.getElementById('publishResults');
+        
+        if (!confirm('Biztosan közzéteszed a Google Ads fiókban? A hirdetés PAUSED állapotban kerül fel.')) {
+            return;
+        }
+        
+        btn.innerHTML = '⏳ Közzététel...';
+        btn.disabled = true;
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
+            const data = await resp.json();
+            
+            if (data.success) {
+                results.innerHTML = '<div class="alert alert-success">✅ Sikeresen közzétéve! Ellenőrizd a Google Ads fiókodban.</div>';
+            } else {
+                results.innerHTML = '<div class="alert alert-error">❌ Hiba: ' + (data.error || JSON.stringify(data.results)) + '</div>';
+            }
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.innerHTML = '📤 Közzététel a Google Ads-ban';
+        btn.disabled = false;
+    });
+    
+    // AI Assistant Chat
+    let conversationHistory = [];
+    
+    function useExample(btn) {
+        const text = btn.querySelector('span:last-child')?.textContent || btn.textContent.replace(/^"|"$/g, '');
+        document.getElementById('chatInput').value = text;
+        document.getElementById('chatInput').focus();
+    }
+    
+    function addMessage(role, content) {
+        const messagesDiv = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message ' + role;
+        
+        if (role === 'user') {
+            messageDiv.innerHTML = `
+                <div class="message-avatar"><span class="avatar-icon">👤</span></div>
+                <div class="message-bubble">${content}</div>
+            `;
+        } else {
+            messageDiv.innerHTML = `
+                <div class="message-avatar"><span class="avatar-icon">🤖</span></div>
+                <div class="message-bubble">
+                    <div class="message-sender">AdMaster AI</div>
+                    ${content}
+                </div>
+            `;
+        }
+        
+        messagesDiv.appendChild(messageDiv);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    function showTyping() {
+        const messagesDiv = document.getElementById('chatMessages');
+        const typingDiv = document.createElement('div');
+        typingDiv.id = 'typingIndicator';
+        typingDiv.className = 'message assistant';
+        typingDiv.innerHTML = `
+            <div class="message-avatar"><span class="avatar-icon">🤖</span></div>
+            <div class="message-bubble">
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            </div>
+        `;
+        messagesDiv.appendChild(typingDiv);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    function hideTyping() {
+        document.getElementById('typingIndicator')?.remove();
+    }
+    
+    function renderSuggestions(suggestions) {
+        const sidebar = document.getElementById('assistantSidebar');
+        
+        if (!suggestions || !suggestions.understood) {
+            return;
+        }
+        
+        let html = '<div class="suggestions-panel">';
+        html += '<h3>✨ Kampány Javaslatok</h3>';
+        
+        // Business summary
+        if (suggestions.business_summary) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>📋 Összefoglaló</h4>';
+            html += '<p style="font-size:13px;color:var(--text);line-height:1.5;">' + suggestions.business_summary + '</p>';
+            html += '</div>';
+        }
+        
+        // USPs
+        if (suggestions.unique_selling_points?.length) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>⭐ Egyedi Előnyök</h4>';
+            html += '<div class="suggestion-tags">';
+            suggestions.unique_selling_points.forEach(usp => {
+                html += '<span class="suggestion-tag usp">' + usp + '</span>';
+            });
+            html += '</div></div>';
+        }
+        
+        // Headlines
+        if (suggestions.suggested_headlines?.length) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>📝 Headlines</h4>';
+            html += '<div class="suggestion-items">';
+            suggestions.suggested_headlines.forEach(h => {
+                const len = h.length;
+                const cls = len > 30 ? 'color:#dc2626' : '';
+                html += '<div class="suggestion-item"><span>' + h + '</span><span class="char-count" style="' + cls + '">' + len + '/30</span></div>';
+            });
+            html += '</div></div>';
+        }
+        
+        // Descriptions
+        if (suggestions.suggested_descriptions?.length) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>📝 Descriptions</h4>';
+            html += '<div class="suggestion-items">';
+            suggestions.suggested_descriptions.forEach(d => {
+                const len = d.length;
+                const cls = len > 90 ? 'color:#dc2626' : '';
+                html += '<div class="suggestion-item"><span>' + d + '</span><span class="char-count" style="' + cls + '">' + len + '/90</span></div>';
+            });
+            html += '</div></div>';
+        }
+        
+        // Keywords
+        if (suggestions.suggested_keywords?.length) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>🔤 Kulcsszavak</h4>';
+            html += '<div class="suggestion-tags">';
+            suggestions.suggested_keywords.forEach(kw => {
+                html += '<span class="suggestion-tag keyword">' + kw + '</span>';
+            });
+            html += '</div></div>';
+        }
+        
+        // Budget
+        if (suggestions.budget_estimate) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>💰 Költségbecslés</h4>';
+            html += '<div class="budget-estimate">';
+            html += '<div class="budget-row"><span>Napi minimum:</span><span>' + (suggestions.budget_estimate.daily_min?.toLocaleString() || '?') + ' Ft</span></div>';
+            html += '<div class="budget-row"><span>Ajánlott napi:</span><span>' + (suggestions.budget_estimate.daily_recommended?.toLocaleString() || '?') + ' Ft</span></div>';
+            html += '<div class="budget-row"><span>Várható CPA:</span><span>' + (suggestions.budget_estimate.cpa_estimate || '?') + '</span></div>';
+            html += '</div></div>';
+        }
+        
+        // Strategy tips
+        if (suggestions.strategy_tips?.length) {
+            html += '<div class="suggestion-section">';
+            html += '<h4>💡 Stratégiai Tippek</h4>';
+            html += '<ul style="font-size:13px;padding-left:18px;margin:0;line-height:1.6;">';
+            suggestions.strategy_tips.forEach(tip => {
+                html += '<li style="margin-bottom:6px;">' + tip + '</li>';
+            });
+            html += '</ul></div>';
+        }
+        
+        // Actions
+        html += '<div class="suggestion-actions">';
+        html += '<button class="btn btn-primary" onclick="useSuggestionsInWizard()">🚀 Használom</button>';
+        html += '</div>';
+        
+        html += '</div>';
+        
+        sidebar.innerHTML = html;
+        
+        // Mentés localStorage-ba a wizard számára
+        localStorage.setItem('assistantSuggestions', JSON.stringify(suggestions));
+    }
+    
+    function useSuggestionsInWizard() {
+        const suggestions = JSON.parse(localStorage.getItem('assistantSuggestions') || '{}');
+        if (suggestions.suggested_industry) {
+            window.location.href = '?tab=wizard&industry=' + suggestions.suggested_industry + '&from_assistant=1';
+        } else {
+            window.location.href = '?tab=wizard';
+        }
+    }
+    
+    document.getElementById('chatForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const input = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('chatSendBtn');
+        const message = input.value.trim();
+        
+        if (!message) return;
+        
+        // Add user message
+        addMessage('user', '<p>' + message.replace(/\n/g, '<br>') + '</p>');
+        conversationHistory.push({ role: 'user', content: message });
+        
+        input.value = '';
+        input.style.height = 'auto';
+        sendBtn.disabled = true;
+        
+        // Show typing indicator
+        showTyping();
+        
+        try {
+            const formData = new FormData();
+            formData.append('action', 'assistant_chat');
+            formData.append('message', message);
+            formData.append('history', JSON.stringify(conversationHistory.slice(-10)));
+            formData.append('csrf_token', document.querySelector('[name="csrf_token"]').value);
+            
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            
+            hideTyping();
+            
+            if (data.success) {
+                let formattedMessage = data.message
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n/g, '<br>')
+                    .replace(/^- /gm, '• ');
+                
+                addMessage('assistant', '<p>' + formattedMessage + '</p>');
+                conversationHistory.push({ role: 'assistant', content: data.message });
+                
+                if (data.suggestions) {
+                    renderSuggestions(data.suggestions);
+                }
+            } else {
+                addMessage('assistant', '<p>❌ Hiba történt: ' + (data.error || 'Ismeretlen hiba') + '</p>');
+            }
+        } catch (err) {
+            hideTyping();
+            addMessage('assistant', '<p>❌ Hálózati hiba: ' + err.message + '</p>');
+        }
+        
+        sendBtn.disabled = false;
+        input.focus();
+    });
+    
+    // Auto-resize textarea & Enter to send
+    const chatInput = document.getElementById('chatInput');
+    chatInput?.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+    chatInput?.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+        }
+    });
     </script>
 </body>
 </html>

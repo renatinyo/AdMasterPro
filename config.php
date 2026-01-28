@@ -59,11 +59,23 @@ define('LOG_DIR', __DIR__ . '/logs/');
 define('LOG_LEVEL', APP_DEBUG ? 'debug' : 'error');
 
 // Alkalmazás info
+// Alkalmazás info
 define('APP_NAME', 'AdMaster Pro');
-define('APP_VERSION', '3.4.0');
+define('APP_VERSION', '5.0.6');
+define('DB_REQUIRED', true); // Adatbázis KÖTELEZŐ v5.0-tól
 
 // SerpApi kulcs (versenytárs figyeléshez)
 define('SERPAPI_KEY', getenv('SERPAPI_KEY') ?: '');
+
+// Screenshot API (screenshotlayer.com vagy screenshotmachine.com)
+define('SCREENSHOT_API_KEY', getenv('SCREENSHOT_API_KEY') ?: '');
+define('SCREENSHOT_API_URL', 'https://api.screenshotmachine.com/?key=%s&url=%s&dimension=1280x1024&format=png');
+
+// Google Ads API
+define('GOOGLE_ADS_DEVELOPER_TOKEN', getenv('GOOGLE_ADS_DEVELOPER_TOKEN') ?: '');
+define('GOOGLE_ADS_CLIENT_ID', getenv('GOOGLE_ADS_CLIENT_ID') ?: '');
+define('GOOGLE_ADS_CLIENT_SECRET', getenv('GOOGLE_ADS_CLIENT_SECRET') ?: '');
+define('GOOGLE_ADS_REFRESH_TOKEN', getenv('GOOGLE_ADS_REFRESH_TOKEN') ?: '');
 
 /**
  * Error handler beállítás

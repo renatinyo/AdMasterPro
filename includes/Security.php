@@ -72,9 +72,17 @@ class Security {
     }
 
     /**
-     * CSRF token generálás
+     * CSRF token generálás - csak ha nincs vagy lejárt
      */
     public static function generateCsrfToken(): string {
+        // Ha van érvényes token, azt adjuk vissza
+        if (!empty($_SESSION['csrf_token']) && 
+            isset($_SESSION['csrf_token_time']) &&
+            (time() - $_SESSION['csrf_token_time']) < CSRF_TOKEN_LIFETIME) {
+            return $_SESSION['csrf_token'];
+        }
+        
+        // Új token generálás
         $token = bin2hex(random_bytes(32));
         $_SESSION['csrf_token'] = $token;
         $_SESSION['csrf_token_time'] = time();

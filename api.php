@@ -3,6 +3,29 @@
  * AdMaster Pro v2.0 - API Endpoint
  */
 
+// Globális hibakezelés - JSON válasz minden esetben
+set_exception_handler(function($e) {
+    header('Content-Type: application/json');
+    http_response_code(500);
+    echo json_encode([
+        'success' => false, 
+        'error' => 'Szerverhiba: ' . $e->getMessage()
+    ]);
+    exit;
+});
+
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    // Ne kezeljünk notice, warning és deprecated hibákat
+    if ($errno === E_NOTICE || $errno === E_DEPRECATED || $errno === E_USER_DEPRECATED || $errno === E_WARNING) {
+        return false;
+    }
+    // DOM/HTML parse hibák kihagyása
+    if (strpos($errstr, 'DOMDocument') !== false || strpos($errstr, 'Tag ') !== false) {
+        return true; // Hiba kezelve (elnyomva)
+    }
+    throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
+});
+
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Security.php';
 require_once __DIR__ . '/includes/ProjectManager.php';
@@ -13,21 +36,40 @@ Security::initSession();
 
 // Csak POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    Security::jsonResponse(['error' => 'Method not allowed'], 405);
+    header('Content-Type: application/json');
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+    exit;
 }
 
+$action = strtolower($_POST['action'] ?? '');
+
 // CSRF ellenőrzés
-if (!Security::verifyCsrfToken($_POST['csrf_token'] ?? null)) {
-    Security::log('warning', 'CSRF token failed');
+$csrfToken = $_POST['csrf_token'] ?? null;
+if (!Security::verifyCsrfToken($csrfToken)) {
+    $debugInfo = [
+        'provided_token' => $csrfToken ? substr($csrfToken, 0, 10) . '...' : 'null',
+        'session_token' => isset($_SESSION['csrf_token']) ? substr($_SESSION['csrf_token'], 0, 10) . '...' : 'null',
+        'token_age' => isset($_SESSION['csrf_token_time']) ? (time() - $_SESSION['csrf_token_time']) . 's' : 'no time',
+        'session_id' => session_id() ? substr(session_id(), 0, 10) . '...' : 'no session'
+    ];
+    Security::log('warning', 'CSRF token failed: ' . json_encode($debugInfo));
+    
+    header('Content-Type: application/json');
     http_response_code(403);
-    echo renderError('Biztonsági hiba. Frissítsd az oldalt.');
+    echo json_encode([
+        'success' => false, 
+        'error' => 'Biztonsági hiba (CSRF). Frissítsd az oldalt!',
+        'debug' => APP_DEBUG ? $debugInfo : null
+    ]);
     exit;
 }
 
 // Rate limit
 if (!Security::checkRateLimit('api')) {
+    header('Content-Type: application/json');
     http_response_code(429);
-    echo renderError('Túl sok kérés. Várj egy kicsit.');
+    echo json_encode(['success' => false, 'error' => 'Túl sok kérés. Várj egy kicsit.']);
     exit;
 }
 
@@ -64,6 +106,17 @@ try {
         'generate_pmax', 'generatepmax' => handleGeneratePmax($industries),
         'generate_industry', 'generateindustry' => handleGenerateIndustry(),
         'delete_industry', 'deleteindustry' => handleDeleteIndustry(),
+        'extension_ping', 'extensionping' => handleExtensionPing(),
+        'get_extension_data', 'getextensiondata' => handleGetExtensionData(),
+        'save_extension_data', 'saveextensiondata' => handleSaveExtensionData(),
+        'run_diagnosis', 'rundiagnosis' => handleRunDiagnosis($industries),
+        'analyze_landing_vision', 'analyzelandingvision' => handleAnalyzeLandingVision($industries),
+        'publish_to_google_ads', 'publishtogoogleads' => handlePublishToGoogleAds(),
+        'get_gads_accounts', 'getgadsaccounts' => handleGetGadsAccounts(),
+        'get_gads_campaigns', 'getgadscampaigns' => handleGetGadsCampaigns(),
+        'get_gads_adgroups', 'getgadsadgroups' => handleGetGadsAdGroups(),
+        'assistant_chat', 'assistantchat' => handleAssistantChat($industries),
+        'get_last_result', 'getlastresult' => handleGetLastResult(),
         default => print renderError('Ismeretlen művelet')
     };
 } catch (Exception $e) {
@@ -655,9 +708,11 @@ function handleAnalyzeLandingFull(array $industries): void {
         return;
     }
     
-    // HTML elemzés
+    // HTML elemzés - HTML5 kompatibilis módon
+    libxml_use_internal_errors(true); // HTML5 hibák elnyomása
     $dom = new DOMDocument();
-    @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
+    $dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+    libxml_clear_errors();
     $xpath = new DOMXPath($dom);
     
     $results = ['url' => $url, 'technical' => [], 'content' => []];
@@ -989,6 +1044,992 @@ function handleDeleteIndustry(): void {
     echo json_encode(['success' => true]);
 }
 
+// === CHROME EXTENSION API ===
+function handleExtensionPing(): void {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    
+    echo json_encode([
+        'success' => true,
+        'version' => APP_VERSION,
+        'name' => APP_NAME
+    ]);
+}
+
+function handleGetExtensionData(): void {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    
+    // Load last generated data from session or file
+    $dataFile = __DIR__ . '/data/extension_data.json';
+    
+    if (file_exists($dataFile)) {
+        $data = json_decode(file_get_contents($dataFile), true);
+        echo json_encode([
+            'success' => true,
+            'headlines' => $data['headlines'] ?? [],
+            'descriptions' => $data['descriptions'] ?? [],
+            'callonly' => $data['callonly'] ?? [],
+            'lastUpdate' => $data['lastUpdate'] ?? null
+        ]);
+    } else {
+        echo json_encode([
+            'success' => true,
+            'headlines' => [],
+            'descriptions' => [],
+            'callonly' => [],
+            'lastUpdate' => null
+        ]);
+    }
+}
+
+function handleSaveExtensionData(): void {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    
+    $headlines = json_decode($_POST['headlines'] ?? '[]', true) ?: [];
+    $descriptions = json_decode($_POST['descriptions'] ?? '[]', true) ?: [];
+    $callonly = json_decode($_POST['callonly'] ?? '[]', true) ?: [];
+    
+    $data = [
+        'headlines' => $headlines,
+        'descriptions' => $descriptions,
+        'callonly' => $callonly,
+        'lastUpdate' => date('Y-m-d H:i:s')
+    ];
+    
+    $dataFile = __DIR__ . '/data/extension_data.json';
+    $result = file_put_contents($dataFile, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    
+    echo json_encode(['success' => $result !== false]);
+}
+
+// === AI DIAGNOSIS ===
+function handleRunDiagnosis(array $industries): void {
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    $landing_url = Security::sanitizeInput($_POST['landing_url'] ?? '', 'url');
+    $headlines = $_POST['headlines'] ?? '';
+    $keywords = $_POST['keywords'] ?? '';
+    $clicks = (int)($_POST['clicks'] ?? 0);
+    $leads = (int)($_POST['leads'] ?? 0);
+    $spend = (int)($_POST['spend'] ?? 0);
+    $bid_strategy = Security::sanitizeInput($_POST['bid_strategy'] ?? '', 'alphanumeric');
+    
+    if (!isset($industries[$industry_key])) {
+        echo renderError('Válassz iparágat!');
+        return;
+    }
+    
+    $industry = $industries[$industry_key];
+    
+    // Landing page audit ha van URL
+    $landingData = null;
+    if ($landing_url) {
+        $context = stream_context_create(['http' => ['timeout' => 10, 'user_agent' => 'AdMaster Bot']]);
+        $html = @file_get_contents($landing_url, false, $context);
+        if ($html) {
+            libxml_use_internal_errors(true);
+            $dom = new DOMDocument();
+            $dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+            libxml_clear_errors();
+            $xpath = new DOMXPath($dom);
+            
+            $landingData = [
+                'has_phone' => preg_match('/(\+36|06)[\s\-]?\d{1,2}[\s\-]?\d{3}[\s\-]?\d{3,4}/', $html),
+                'has_form' => $xpath->query('//form')->length > 0,
+                'h1' => $xpath->query('//h1')->item(0) ? trim($xpath->query('//h1')->item(0)->textContent) : null,
+                'cta_count' => $xpath->query('//a[contains(@class,"btn") or contains(@class,"button")] | //button')->length
+            ];
+        }
+    }
+    
+    // Teljesítmény számítások
+    $cvr = $clicks > 0 ? round(($leads / $clicks) * 100, 2) : 0;
+    $cpa = $leads > 0 ? round($spend / $leads) : 0;
+    $benchmark_cpa = (int)preg_replace('/[^0-9]/', '', $industry['benchmarks']['cpa_budapest'] ?? '8000');
+    
+    // AI prompt
+    $prompt = "Te egy magyar Google Ads szakértő vagy. Végezz MÉLYREHATÓ DIAGNÓZIST ezen a kampányon és mondd meg MIÉRT NEM HOZ LEADET.
+
+IPARÁG: {$industry['name']}
+BENCHMARK CPA: {$benchmark_cpa} Ft
+
+KAMPÁNY ADATOK:
+- Headlines: " . ($headlines ?: 'nincs megadva') . "
+- Kulcsszavak: " . ($keywords ?: 'nincs megadva') . "
+- Bid stratégia: " . ($bid_strategy ?: 'nincs megadva') . "
+
+TELJESÍTMÉNY:
+- Kattintások: $clicks
+- Leadek: $leads
+- Költés: $spend Ft
+- Konverziós ráta: $cvr%
+- Aktuális CPA: " . ($cpa ?: 'n/a') . " Ft
+
+" . ($landingData ? "LANDING PAGE:
+- Van telefon: " . ($landingData['has_phone'] ? 'igen' : 'NEM!') . "
+- Van form: " . ($landingData['has_form'] ? 'igen' : 'NEM!') . "
+- H1: " . ($landingData['h1'] ?: 'HIÁNYZIK!') . "
+- CTA gombok: " . $landingData['cta_count'] : "") . "
+
+ELEMEZD ÉS ADJ DIAGNÓZIST:
+1. Mi a FŐ PROBLÉMA?
+2. Kulcsszó intent elemzés
+3. Headline minőség értékelés
+4. Landing page problémák
+5. Stratégia/beállítás hibák
+6. KONKRÉT JAVÍTÁSI LÉPÉSEK (prioritás sorrendben)
+
+Válasz JSON:
+{
+    \"overall_score\": 0-100,
+    \"main_problem\": \"egyetlen mondatos diagnózis\",
+    \"issues\": [
+        {\"category\": \"keyword/headline/landing/strategy/budget\", \"severity\": \"critical/warning/info\", \"issue\": \"probléma\", \"fix\": \"megoldás\"}
+    ],
+    \"keyword_analysis\": {\"score\": 0-100, \"problems\": [\"...\"], \"suggestions\": [\"...\"]},
+    \"headline_analysis\": {\"score\": 0-100, \"problems\": [\"...\"], \"suggestions\": [\"...\"]},
+    \"landing_analysis\": {\"score\": 0-100, \"problems\": [\"...\"], \"suggestions\": [\"...\"]},
+    \"strategy_analysis\": {\"score\": 0-100, \"problems\": [\"...\"], \"suggestions\": [\"...\"]},
+    \"action_plan\": [
+        {\"priority\": 1, \"action\": \"mit csinálj\", \"impact\": \"high/medium/low\", \"effort\": \"easy/medium/hard\"}
+    ],
+    \"expected_improvement\": \"ha mindent megcsinálsz, X% javulás várható\"
+}";
+    
+    $response = callAnthropicAPI($prompt);
+    $data = parseJsonResponse($response);
+    
+    // Render eredmények
+    echo '<div class="diagnosis-results">';
+    
+    // Overall score
+    $score = $data['overall_score'] ?? 0;
+    $scoreClass = $score >= 70 ? 'score-good' : ($score >= 40 ? 'score-warning' : 'score-bad');
+    
+    echo '<div class="diagnosis-header">';
+    echo '<div class="diagnosis-score ' . $scoreClass . '">';
+    echo '<span class="score-value">' . $score . '</span>';
+    echo '<span class="score-label">/ 100</span>';
+    echo '</div>';
+    echo '<div class="diagnosis-main-problem">';
+    echo '<h3>🔴 Fő Probléma</h3>';
+    echo '<p>' . htmlspecialchars($data['main_problem'] ?? 'Nem sikerült azonosítani') . '</p>';
+    echo '</div>';
+    echo '</div>';
+    
+    // Issues list
+    if (!empty($data['issues'])) {
+        echo '<div class="card diagnosis-issues">';
+        echo '<h3 class="card-title">❌ Azonosított Problémák</h3>';
+        
+        $severityIcons = ['critical' => '🔴', 'warning' => '🟡', 'info' => '🔵'];
+        $categoryNames = ['keyword' => 'Kulcsszó', 'headline' => 'Headline', 'landing' => 'Landing', 'strategy' => 'Stratégia', 'budget' => 'Büdzsé'];
+        
+        foreach ($data['issues'] as $issue) {
+            $icon = $severityIcons[$issue['severity']] ?? '⚪';
+            $cat = $categoryNames[$issue['category']] ?? $issue['category'];
+            
+            echo '<div class="issue-item issue-' . $issue['severity'] . '">';
+            echo '<div class="issue-header">';
+            echo '<span class="issue-icon">' . $icon . '</span>';
+            echo '<span class="issue-category">' . $cat . '</span>';
+            echo '</div>';
+            echo '<div class="issue-text">' . htmlspecialchars($issue['issue']) . '</div>';
+            echo '<div class="issue-fix">💡 ' . htmlspecialchars($issue['fix']) . '</div>';
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    // Scores breakdown
+    echo '<div class="diagnosis-scores-grid">';
+    
+    $analyses = [
+        'keyword_analysis' => ['🔤', 'Kulcsszavak'],
+        'headline_analysis' => ['📝', 'Headlines'],
+        'landing_analysis' => ['🌐', 'Landing Page'],
+        'strategy_analysis' => ['🎯', 'Stratégia']
+    ];
+    
+    foreach ($analyses as $key => $info) {
+        if (isset($data[$key])) {
+            $aScore = $data[$key]['score'] ?? 0;
+            $aClass = $aScore >= 70 ? 'score-good' : ($aScore >= 40 ? 'score-warning' : 'score-bad');
+            
+            echo '<div class="analysis-card">';
+            echo '<div class="analysis-header">';
+            echo '<span class="analysis-icon">' . $info[0] . '</span>';
+            echo '<span class="analysis-name">' . $info[1] . '</span>';
+            echo '<span class="analysis-score ' . $aClass . '">' . $aScore . '</span>';
+            echo '</div>';
+            
+            if (!empty($data[$key]['problems'])) {
+                echo '<div class="analysis-problems">';
+                foreach (array_slice($data[$key]['problems'], 0, 3) as $p) {
+                    echo '<div class="problem-item">❌ ' . htmlspecialchars($p) . '</div>';
+                }
+                echo '</div>';
+            }
+            
+            if (!empty($data[$key]['suggestions'])) {
+                echo '<div class="analysis-suggestions">';
+                foreach (array_slice($data[$key]['suggestions'], 0, 2) as $s) {
+                    echo '<div class="suggestion-item">✅ ' . htmlspecialchars($s) . '</div>';
+                }
+                echo '</div>';
+            }
+            
+            echo '</div>';
+        }
+    }
+    echo '</div>';
+    
+    // Action Plan
+    if (!empty($data['action_plan'])) {
+        echo '<div class="card diagnosis-action-plan">';
+        echo '<h3 class="card-title">📋 Cselekvési Terv (Prioritás Sorrendben)</h3>';
+        
+        foreach ($data['action_plan'] as $action) {
+            $impactClass = 'impact-' . ($action['impact'] ?? 'medium');
+            $effortBadge = ['easy' => '🟢 Könnyű', 'medium' => '🟡 Közepes', 'hard' => '🔴 Nehéz'][$action['effort']] ?? '';
+            
+            echo '<div class="action-item ' . $impactClass . '">';
+            echo '<div class="action-priority">#' . ($action['priority'] ?? '?') . '</div>';
+            echo '<div class="action-content">';
+            echo '<div class="action-text">' . htmlspecialchars($action['action']) . '</div>';
+            echo '<div class="action-meta">';
+            echo '<span class="action-impact">Hatás: ' . ucfirst($action['impact'] ?? 'medium') . '</span>';
+            echo '<span class="action-effort">' . $effortBadge . '</span>';
+            echo '</div>';
+            echo '</div>';
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    // Expected improvement
+    if (!empty($data['expected_improvement'])) {
+        echo '<div class="diagnosis-conclusion">';
+        echo '<h3>📈 Várható Javulás</h3>';
+        echo '<p>' . htmlspecialchars($data['expected_improvement']) . '</p>';
+        echo '</div>';
+    }
+    
+    echo '</div>';
+}
+
+// === AI VISION LANDING PAGE ANALYSIS ===
+function handleAnalyzeLandingVision(array $industries): void {
+    require_once __DIR__ . '/includes/VisionAnalyzer.php';
+    
+    $url = Security::sanitizeInput($_POST['url'] ?? '', 'url');
+    $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
+    
+    if (empty($url)) {
+        echo renderError('URL megadása kötelező.');
+        return;
+    }
+    
+    // URL validáció
+    if (!filter_var($url, FILTER_VALIDATE_URL)) {
+        // Próbáljuk https-sel
+        if (filter_var('https://' . $url, FILTER_VALIDATE_URL)) {
+            $url = 'https://' . $url;
+        } else {
+            echo renderError('Érvénytelen URL formátum.');
+            return;
+        }
+    }
+    
+    // API key ellenőrzés
+    if (empty(ANTHROPIC_API_KEY)) {
+        echo renderError('Az Anthropic API kulcs nincs beállítva a config.php-ban!');
+        return;
+    }
+    
+    $visionAnalyzer = new VisionAnalyzer();
+    
+    // Iparág
+    $industry = isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    
+    // Próbáljuk Screenshot API-val ha van
+    $screenshot = null;
+    if ($visionAnalyzer->isConfigured()) {
+        echo '<div class="vision-progress">';
+        echo '<p>📸 Screenshot készítése: <code>' . htmlspecialchars($url) . '</code></p>';
+        ob_flush(); flush();
+        
+        $screenshot = $visionAnalyzer->captureScreenshot($url);
+    }
+    
+    // Ha nincs screenshot, használjunk URL-alapú elemzést
+    if (!$screenshot) {
+        echo '<div class="vision-progress">';
+        echo '<p>🔍 Landing page tartalom letöltése...</p>';
+        ob_flush(); flush();
+        
+        // Oldal letöltése
+        $context = stream_context_create([
+            'http' => [
+                'timeout' => 15,
+                'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+                'follow_location' => true
+            ],
+            'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]
+        ]);
+        
+        $html = @file_get_contents($url, false, $context);
+        
+        if (!$html) {
+            echo '</div>';
+            echo renderError('Nem sikerült letölteni az oldalt. Ellenőrizd az URL-t!');
+            return;
+        }
+        
+        echo '<p>🤖 AI elemzés folyamatban...</p>';
+        ob_flush(); flush();
+        
+        // HTML tisztítás - csak a fontos részek
+        libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        $xpath = new DOMXPath($dom);
+        
+        // Adatok kinyerése
+        $pageData = [
+            'title' => $xpath->query('//title')->item(0) ? trim($xpath->query('//title')->item(0)->textContent) : '',
+            'h1' => $xpath->query('//h1')->item(0) ? trim($xpath->query('//h1')->item(0)->textContent) : '',
+            'meta_desc' => $xpath->query('//meta[@name="description"]/@content')->item(0) ? $xpath->query('//meta[@name="description"]/@content')->item(0)->textContent : '',
+            'has_form' => $xpath->query('//form')->length > 0,
+            'cta_count' => $xpath->query('//a[contains(@class,"btn") or contains(@class,"button")] | //button')->length,
+            'phone_found' => preg_match('/(\+36|06)[\s\-]?\d{1,2}[\s\-]?\d{3}[\s\-]?\d{3,4}/', $html, $phoneMatch) ? $phoneMatch[0] : false,
+            'https' => strpos($url, 'https://') === 0,
+            'has_viewport' => (bool)preg_match('/<meta[^>]+viewport/i', $html)
+        ];
+        
+        // Body szöveg (max 3000 karakter)
+        $bodyText = '';
+        $paragraphs = $xpath->query('//p | //h1 | //h2 | //h3 | //li');
+        foreach ($paragraphs as $p) {
+            $bodyText .= trim($p->textContent) . "\n";
+        }
+        $bodyText = mb_substr($bodyText, 0, 3000);
+        
+        // AI elemzés URL alapján
+        $analysis = analyzePageWithAI($url, $pageData, $bodyText, $industry);
+        
+        echo '</div>';
+        
+        renderVisionResults($analysis, $url, null);
+        return;
+    }
+    
+    // Screenshot-os elemzés
+    echo '<p>🤖 AI Vision elemzés...</p>';
+    ob_flush(); flush();
+    
+    $analysis = $visionAnalyzer->analyzeWithVision($screenshot, $url, [
+        'industry' => $industry
+    ]);
+    
+    echo '</div>';
+    
+    if (isset($analysis['error'])) {
+        echo renderError('Vision elemzés hiba: ' . $analysis['error']);
+        return;
+    }
+    
+    renderVisionResults($analysis, $url, $screenshot);
+}
+
+/**
+ * URL-alapú AI elemzés (screenshot nélkül)
+ */
+function analyzePageWithAI(string $url, array $pageData, string $bodyText, ?array $industry): array {
+    $industryInfo = $industry ? "Iparág: {$industry['name']}" : "";
+    
+    $prompt = "Te egy UX/UI és CRO szakértő vagy. Elemezd ezt a magyar landing page-et az alábbi adatok alapján!
+
+URL: $url
+$industryInfo
+
+OLDAL ADATOK:
+- Title: {$pageData['title']}
+- H1: {$pageData['h1']}
+- Meta description: {$pageData['meta_desc']}
+- Van form: " . ($pageData['has_form'] ? 'Igen' : 'Nem') . "
+- CTA gombok száma: {$pageData['cta_count']}
+- Telefon látható: " . ($pageData['phone_found'] ?: 'Nem') . "
+- HTTPS: " . ($pageData['https'] ? 'Igen' : 'Nem') . "
+- Mobile viewport: " . ($pageData['has_viewport'] ? 'Van' : 'Nincs') . "
+
+OLDAL TARTALMA (részlet):
+$bodyText
+
+ELEMEZD ÉS ADJ VISSZA JSON-T:
+{
+    \"first_impression\": {
+        \"score\": 0-100,
+        \"clear_value_prop\": true/false,
+        \"visible_cta\": true/false,
+        \"issues\": [\"probléma1\", \"probléma2\"]
+    },
+    \"cta_analysis\": {
+        \"score\": 0-100,
+        \"position\": \"jó / nem látható / hiányzik\",
+        \"issues\": [\"...\"]
+    },
+    \"trust_signals\": {
+        \"score\": 0-100,
+        \"has_testimonials\": true/false,
+        \"has_certifications\": true/false,
+        \"issues\": [\"...\"]
+    },
+    \"contact_visibility\": {
+        \"score\": 0-100,
+        \"phone_visible\": true/false,
+        \"phone_prominent\": true/false,
+        \"has_form\": true/false,
+        \"issues\": [\"...\"]
+    },
+    \"mobile_readiness\": {
+        \"score\": 0-100,
+        \"appears_responsive\": true/false,
+        \"issues\": [\"...\"]
+    },
+    \"overall_score\": 0-100,
+    \"top_3_fixes\": [
+        {\"fix\": \"mit javíts\", \"impact\": \"high/medium/low\"}
+    ],
+    \"positive_aspects\": [\"ami jó\"]
+}";
+
+    $response = callAnthropicAPI($prompt);
+    
+    // JSON kinyerése
+    if (preg_match('/\{[\s\S]*\}/m', $response, $matches)) {
+        $result = json_decode($matches[0], true);
+        if ($result) {
+            return $result;
+        }
+    }
+    
+    return ['error' => 'Nem sikerült elemezni az oldalt'];
+}
+
+/**
+ * Vision eredmények renderelése
+ */
+function renderVisionResults(array $analysis, string $url, ?string $screenshot): void {
+    if (isset($analysis['error'])) {
+        echo renderError($analysis['error']);
+        return;
+    }
+    
+    echo '<div class="vision-results">';
+    
+    // Overall score
+    $score = $analysis['overall_score'] ?? 0;
+    $scoreClass = $score >= 70 ? 'score-good' : ($score >= 40 ? 'score-warning' : 'score-bad');
+    
+    echo '<div class="vision-header">';
+    
+    // Screenshot ha van
+    if ($screenshot) {
+        echo '<div class="vision-screenshot">';
+        echo '<img src="data:image/png;base64,' . $screenshot . '" alt="Screenshot">';
+        echo '</div>';
+    } else {
+        echo '<div class="vision-url-box">';
+        echo '<span class="url-icon">🌐</span>';
+        echo '<a href="' . htmlspecialchars($url) . '" target="_blank">' . htmlspecialchars($url) . '</a>';
+        echo '</div>';
+    }
+    
+    echo '<div class="vision-score-panel">';
+    echo '<div class="big-score ' . $scoreClass . '">' . $score . '<span>/100</span></div>';
+    echo '<p>Landing Page Pontszám</p>';
+    echo '</div>';
+    echo '</div>';
+    
+    // Kategória scores
+    $categories = [
+        'first_impression' => ['👁️', 'Első Benyomás'],
+        'cta_analysis' => ['🎯', 'CTA Elemzés'],
+        'trust_signals' => ['🏆', 'Bizalom Jelek'],
+        'contact_visibility' => ['📞', 'Kontakt Láthatóság'],
+        'mobile_readiness' => ['📱', 'Mobil Készség']
+    ];
+    
+    echo '<div class="vision-categories">';
+    foreach ($categories as $key => $info) {
+        if (isset($analysis[$key])) {
+            $catScore = $analysis[$key]['score'] ?? 0;
+            $catClass = $catScore >= 70 ? 'cat-good' : ($catScore >= 40 ? 'cat-warning' : 'cat-bad');
+            
+            echo '<div class="vision-category ' . $catClass . '">';
+            echo '<div class="cat-icon">' . $info[0] . '</div>';
+            echo '<div class="cat-score">' . $catScore . '</div>';
+            echo '<div class="cat-name">' . $info[1] . '</div>';
+            
+            if (!empty($analysis[$key]['issues'])) {
+                echo '<ul class="cat-issues">';
+                foreach ($analysis[$key]['issues'] as $issue) {
+                    echo '<li>' . htmlspecialchars($issue) . '</li>';
+                }
+                echo '</ul>';
+            }
+            echo '</div>';
+        }
+    }
+    echo '</div>';
+    
+    // Top 3 fixes
+    if (!empty($analysis['top_3_fixes'])) {
+        echo '<div class="vision-fixes">';
+        echo '<h4>🔧 Top 3 Javítandó</h4>';
+        echo '<div class="fixes-list">';
+        foreach ($analysis['top_3_fixes'] as $fix) {
+            $impact = $fix['impact'] ?? 'medium';
+            $impactClass = $impact === 'high' ? 'impact-high' : ($impact === 'low' ? 'impact-low' : 'impact-medium');
+            echo '<div class="fix-item ' . $impactClass . '">';
+            echo '<span class="fix-impact">' . strtoupper($impact) . '</span>';
+            echo '<span class="fix-text">' . htmlspecialchars($fix['fix']) . '</span>';
+            echo '</div>';
+        }
+        echo '</div>';
+        echo '</div>';
+    }
+    
+    // Positive aspects
+    if (!empty($analysis['positive_aspects'])) {
+        echo '<div class="vision-positives">';
+        echo '<h4>✅ Ami Jó</h4>';
+        echo '<ul>';
+        foreach ($analysis['positive_aspects'] as $pos) {
+            echo '<li>' . htmlspecialchars($pos) . '</li>';
+        }
+        echo '</ul>';
+        echo '</div>';
+    }
+    
+    echo '</div>';
+}
+    
+    $screenshot = $visionAnalyzer->captureScreenshot($url);
+    
+    if (!$screenshot) {
+        echo renderError('Nem sikerült screenshotot készíteni az oldalról.');
+        return;
+    }
+    
+    echo '<p>🤖 AI Vision elemzés...</p>';
+    ob_flush(); flush();
+    
+    // AI Vision elemzés
+    $industry = isset($industries[$industry_key]) ? $industries[$industry_key] : null;
+    $analysis = $visionAnalyzer->analyzeWithVision($screenshot, $url, [
+        'industry' => $industry
+    ]);
+    
+    echo '</div>';
+    
+    if (isset($analysis['error'])) {
+        echo renderError('Vision elemzés hiba: ' . $analysis['error']);
+        return;
+    }
+    
+    // Render eredmények
+    echo '<div class="vision-results">';
+    
+    // Overall score
+    $score = $analysis['overall_score'] ?? 0;
+    $scoreClass = $score >= 70 ? 'score-good' : ($score >= 40 ? 'score-warning' : 'score-bad');
+    
+    echo '<div class="vision-header">';
+    echo '<div class="vision-screenshot">';
+    echo '<img src="data:image/png;base64,' . $screenshot . '" alt="Screenshot">';
+    echo '</div>';
+    echo '<div class="vision-score-panel">';
+    echo '<div class="big-score ' . $scoreClass . '">' . $score . '<span>/100</span></div>';
+    echo '<p>UX/Vizuális Pontszám</p>';
+    echo '</div>';
+    echo '</div>';
+    
+    // Kategória scores
+    $categories = [
+        'first_impression' => ['👁️', 'Első Benyomás'],
+        'cta_analysis' => ['🎯', 'CTA Elemzés'],
+        'trust_signals' => ['🏆', 'Bizalom Jelek'],
+        'contact_visibility' => ['📞', 'Kontakt Láthatóság'],
+        'mobile_readiness' => ['📱', 'Mobil Készség']
+    ];
+    
+    echo '<div class="vision-categories">';
+    foreach ($categories as $key => $info) {
+        if (isset($analysis[$key])) {
+            $catScore = $analysis[$key]['score'] ?? 0;
+            $catClass = $catScore >= 70 ? 'cat-good' : ($catScore >= 40 ? 'cat-warning' : 'cat-bad');
+            
+            echo '<div class="vision-category ' . $catClass . '">';
+            echo '<div class="cat-icon">' . $info[0] . '</div>';
+            echo '<div class="cat-score">' . $catScore . '</div>';
+            echo '<div class="cat-name">' . $info[1] . '</div>';
+            
+            // Issues
+            if (!empty($analysis[$key]['issues'])) {
+                echo '<ul class="cat-issues">';
+                foreach (array_slice($analysis[$key]['issues'], 0, 2) as $issue) {
+                    echo '<li>❌ ' . htmlspecialchars($issue) . '</li>';
+                }
+                echo '</ul>';
+            }
+            echo '</div>';
+        }
+    }
+    echo '</div>';
+    
+    // Visual Issues
+    if (!empty($analysis['visual_issues'])) {
+        echo '<div class="card" style="margin-top:20px">';
+        echo '<h4>🎨 Vizuális Problémák</h4>';
+        foreach ($analysis['visual_issues'] as $vi) {
+            $sevClass = 'issue-' . ($vi['severity'] ?? 'info');
+            echo '<div class="visual-issue ' . $sevClass . '">';
+            echo '<strong>' . htmlspecialchars($vi['issue']) . '</strong>';
+            if (!empty($vi['location'])) {
+                echo ' <span class="issue-location">(' . htmlspecialchars($vi['location']) . ')</span>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    // Top 3 Fixes
+    if (!empty($analysis['top_3_fixes'])) {
+        echo '<div class="card card-tips" style="margin-top:20px">';
+        echo '<h4>🔧 Top 3 Javítás</h4>';
+        foreach ($analysis['top_3_fixes'] as $i => $fix) {
+            $impactBadge = ['high' => '🔴 Magas', 'medium' => '🟡 Közepes', 'low' => '🟢 Alacsony'][$fix['impact']] ?? '';
+            $effortBadge = ['easy' => '✅ Könnyű', 'medium' => '⚠️ Közepes', 'hard' => '❌ Nehéz'][$fix['effort']] ?? '';
+            
+            echo '<div class="fix-item">';
+            echo '<span class="fix-num">#' . ($i + 1) . '</span>';
+            echo '<span class="fix-text">' . htmlspecialchars($fix['fix']) . '</span>';
+            echo '<span class="fix-badges">' . $impactBadge . ' | ' . $effortBadge . '</span>';
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    // Positive Aspects
+    if (!empty($analysis['positive_aspects'])) {
+        echo '<div class="card" style="margin-top:20px">';
+        echo '<h4>✅ Ami Jó</h4>';
+        echo '<ul>';
+        foreach ($analysis['positive_aspects'] as $pos) {
+            echo '<li>✓ ' . htmlspecialchars($pos) . '</li>';
+        }
+        echo '</ul>';
+        echo '</div>';
+    }
+    
+    echo '</div>';
+}
+
+// === GOOGLE ADS API HANDLERS ===
+function handlePublishToGoogleAds(): void {
+    header('Content-Type: application/json');
+    
+    require_once __DIR__ . '/includes/GoogleAdsManager.php';
+    $gads = new GoogleAdsManager();
+    
+    if (!$gads->isConfigured()) {
+        echo json_encode(['success' => false, 'error' => 'Google Ads API nincs konfigurálva']);
+        return;
+    }
+    
+    $customerId = Security::sanitizeInput($_POST['customer_id'] ?? '', 'alphanumeric');
+    $adGroupId = Security::sanitizeInput($_POST['ad_group_id'] ?? '', 'alphanumeric');
+    $finalUrl = Security::sanitizeInput($_POST['final_url'] ?? '', 'url');
+    $path1 = Security::sanitizeInput($_POST['path1'] ?? '', 'alphanumeric');
+    $path2 = Security::sanitizeInput($_POST['path2'] ?? '', 'alphanumeric');
+    
+    $publishRsa = isset($_POST['publish_rsa']);
+    $publishKeywords = isset($_POST['publish_keywords']);
+    $publishNegatives = isset($_POST['publish_negatives']);
+    
+    // Utolsó generált adatok betöltése
+    $dataFile = __DIR__ . '/data/extension_data.json';
+    if (!file_exists($dataFile)) {
+        echo json_encode(['success' => false, 'error' => 'Nincs generált tartalom']);
+        return;
+    }
+    
+    $data = json_decode(file_get_contents($dataFile), true);
+    $results = ['rsa' => null, 'keywords' => null, 'negatives' => null];
+    
+    // RSA hirdetés létrehozása
+    if ($publishRsa && !empty($data['headlines']) && !empty($data['descriptions'])) {
+        $results['rsa'] = $gads->createResponsiveSearchAd(
+            $customerId,
+            $adGroupId,
+            $data['headlines'],
+            $data['descriptions'],
+            $finalUrl,
+            $path1,
+            $path2
+        );
+    }
+    
+    // Kulcsszavak hozzáadása
+    if ($publishKeywords && !empty($data['keywords'])) {
+        $results['keywords'] = $gads->addKeywords($customerId, $adGroupId, $data['keywords']);
+    }
+    
+    $success = ($results['rsa']['success'] ?? false) || ($results['keywords']['success'] ?? false);
+    
+    echo json_encode([
+        'success' => $success,
+        'results' => $results
+    ]);
+}
+
+function handleGetGadsAccounts(): void {
+    header('Content-Type: application/json');
+    
+    require_once __DIR__ . '/includes/GoogleAdsManager.php';
+    $gads = new GoogleAdsManager();
+    
+    if (!$gads->isConfigured()) {
+        echo json_encode(['success' => false, 'accounts' => []]);
+        return;
+    }
+    
+    $accounts = $gads->getAccessibleAccounts();
+    
+    // Resource name-ből customer ID kinyerése
+    $formatted = array_map(function($rn) {
+        preg_match('/customers\/(\d+)/', $rn, $m);
+        return ['id' => $m[1] ?? '', 'name' => $m[1] ?? $rn];
+    }, $accounts);
+    
+    echo json_encode(['success' => true, 'accounts' => $formatted]);
+}
+
+function handleGetGadsCampaigns(): void {
+    header('Content-Type: application/json');
+    
+    require_once __DIR__ . '/includes/GoogleAdsManager.php';
+    $gads = new GoogleAdsManager();
+    
+    $customerId = Security::sanitizeInput($_POST['customer_id'] ?? '', 'alphanumeric');
+    
+    if (!$gads->isConfigured() || empty($customerId)) {
+        echo json_encode(['success' => false, 'campaigns' => []]);
+        return;
+    }
+    
+    $campaigns = $gads->getCampaigns($customerId);
+    echo json_encode(['success' => true, 'campaigns' => $campaigns]);
+}
+
+function handleGetGadsAdGroups(): void {
+    header('Content-Type: application/json');
+    
+    require_once __DIR__ . '/includes/GoogleAdsManager.php';
+    $gads = new GoogleAdsManager();
+    
+    $customerId = Security::sanitizeInput($_POST['customer_id'] ?? '', 'alphanumeric');
+    $campaignId = Security::sanitizeInput($_POST['campaign_id'] ?? '', 'alphanumeric');
+    
+    if (!$gads->isConfigured() || empty($customerId) || empty($campaignId)) {
+        echo json_encode(['success' => false, 'adGroups' => []]);
+        return;
+    }
+    
+    $adGroups = $gads->getAdGroups($customerId, $campaignId);
+    echo json_encode(['success' => true, 'adGroups' => $adGroups]);
+}
+
+// === GET LAST RESULT ===
+function handleGetLastResult(): void {
+    header('Content-Type: application/json');
+    
+    $dataFile = __DIR__ . '/data/last_result.json';
+    
+    if (!file_exists($dataFile)) {
+        echo json_encode(['success' => false, 'error' => 'Nincs mentett eredmény']);
+        return;
+    }
+    
+    $data = json_decode(file_get_contents($dataFile), true);
+    
+    if (!$data) {
+        echo json_encode(['success' => false, 'error' => 'Hibás adatfájl']);
+        return;
+    }
+    
+    echo json_encode(['success' => true, 'data' => $data]);
+}
+
+// === AI ASSISTANT CHAT ===
+function handleAssistantChat(array $industries): void {
+    header('Content-Type: application/json');
+    
+    // API key ellenőrzés
+    if (empty(ANTHROPIC_API_KEY)) {
+        echo json_encode(['success' => false, 'error' => 'Az Anthropic API kulcs nincs beállítva. Állítsd be a config.php fájlban!']);
+        return;
+    }
+    
+    $message = $_POST['message'] ?? '';
+    $conversationHistory = json_decode($_POST['history'] ?? '[]', true) ?: [];
+    
+    if (empty(trim($message))) {
+        echo json_encode(['success' => false, 'error' => 'Üres üzenet']);
+        return;
+    }
+    
+    // Iparágak lista a kontextushoz
+    $industryList = array_map(function($ind) {
+        return $ind['name'];
+    }, $industries);
+    
+    $systemPrompt = "Te az AdMaster Pro AI asszisztense vagy, egy magyar Google Ads kampány tervező szakértő.
+
+FELADATOD:
+A felhasználó elmondja mit szeretne hirdetni, te pedig:
+1. Megérted az üzleti igényt
+2. Javasolsz kampány stratégiát
+3. Generálsz konkrét hirdetésszövegeket
+4. Adsz kulcsszó javaslatokat
+5. Becsülsz költségeket
+
+ELÉRHETŐ IPARÁGAK AZ ADATBÁZISBAN:
+" . implode(', ', $industryList) . "
+
+Ha a felhasználó iparága nincs a listában, javasolj hasonlót vagy mondd hogy generálunk újat.
+
+⚠️ GOOGLE ADS SZIGORÚ SZABÁLYOK - KÖTELEZŐ:
+1. HEADLINES: MAXIMUM 30 KARAKTER (szóközökkel együtt!) - számold meg!
+2. DESCRIPTIONS: MAX 90 KARAKTER
+3. TILOS: Emoji (🚨❌✓★ stb.)
+4. TILOS: CSUPA NAGYBETŰ (\"DUGULÁS\" helyett \"Dugulás\")
+5. Használj Title Case formátumot (Minden Szó Nagy Kezdőbetűvel)
+6. Max 1 felkiáltójel headline-onként
+
+VÁLASZ FORMÁTUM (mindig JSON + szöveg):
+Ha elég információd van a kampány tervezéshez, a válaszod tartalmazzon egy ```json blokkot is:
+
+```json
+{
+    \"understood\": true,
+    \"business_summary\": \"Rövid összefoglaló az üzletről\",
+    \"suggested_industry\": \"dugulas/vizszereles/biztonsag/uj\",
+    \"campaign_type\": \"Search/Call-Only/Both\",
+    \"target_audience\": \"Ki a célközönség\",
+    \"unique_selling_points\": [\"USP1\", \"USP2\", \"USP3\"],
+    \"suggested_headlines\": [\"Max 30 Kar Headline 1\", \"Max 30 Kar Headline 2\"],
+    \"suggested_descriptions\": [\"Max 90 karakter description 1\", \"Max 90 karakter description 2\"],
+    \"suggested_keywords\": [\"kulcsszó 1\", \"kulcsszó 2\", \"kulcsszó 3\"],
+    \"suggested_negatives\": [\"negatív 1\", \"negatív 2\"],
+    \"budget_estimate\": {
+        \"daily_min\": 10000,
+        \"daily_recommended\": 20000,
+        \"cpa_estimate\": \"3000-5000 Ft\"
+    },
+    \"strategy_tips\": [\"Tipp 1\", \"Tipp 2\"],
+    \"next_steps\": [\"Mit csináljon következőnek\"]
+}
+```
+
+Ha még információra van szükséged, kérdezz rá (pl. terület, egyedi előnyök, célközönség).
+
+FONTOS:
+- Mindig magyarul válaszolj
+- Légy barátságos és segítőkész
+- NAGYON FONTOS: Headlines SZIGORÚAN max 30 karakter - inkább legyen rövidebb!
+- A descriptions max 90 karakter
+- Adj konkrét, használható javaslatokat
+- NE használj emojit a headline-okban és description-ökben!";
+
+    // Készítsük el a messages tömböt
+    $messages = [];
+    
+    // Előző üzenetek hozzáadása
+    foreach ($conversationHistory as $msg) {
+        $messages[] = [
+            'role' => $msg['role'],
+            'content' => $msg['content']
+        ];
+    }
+    
+    // Új üzenet
+    $messages[] = [
+        'role' => 'user',
+        'content' => $message
+    ];
+    
+    // Claude API hívás
+    $url = 'https://api.anthropic.com/v1/messages';
+    $data = [
+        'model' => 'claude-sonnet-4-20250514',
+        'max_tokens' => 4096,
+        'system' => $systemPrompt,
+        'messages' => $messages
+    ];
+    
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'x-api-key: ' . ANTHROPIC_API_KEY,
+        'anthropic-version: 2023-06-01'
+    ]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+    
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    if ($httpCode !== 200) {
+        echo json_encode(['success' => false, 'error' => 'API hiba: ' . $httpCode]);
+        return;
+    }
+    
+    $result = json_decode($response, true);
+    
+    if (!$result || !isset($result['content'][0]['text'])) {
+        echo json_encode(['success' => false, 'error' => 'Érvénytelen API válasz']);
+        return;
+    }
+    
+    $assistantMessage = $result['content'][0]['text'];
+    
+    // JSON kinyerése a válaszból (ha van)
+    $suggestions = null;
+    if (preg_match('/```json\s*([\s\S]*?)\s*```/', $assistantMessage, $matches)) {
+        $suggestions = json_decode($matches[1], true);
+        // Tisztítsuk meg a szöveget a JSON blokktól a megjelenítéshez
+        $cleanMessage = preg_replace('/```json\s*[\s\S]*?\s*```/', '', $assistantMessage);
+        $cleanMessage = trim($cleanMessage);
+    } else {
+        $cleanMessage = $assistantMessage;
+    }
+    
+    echo json_encode([
+        'success' => true,
+        'message' => $cleanMessage,
+        'suggestions' => $suggestions,
+        'raw' => $assistantMessage
+    ]);
+}
+
 // === GENERATE ALL - WIZARD HANDLER ===
 function handleGenerateAll(array $industries): void {
     $industry_key = Security::sanitizeInput($_POST['industry'] ?? '', 'alpha');
@@ -1011,7 +2052,9 @@ function handleGenerateAll(array $industries): void {
     $extra_trust = isset($_POST['extra_trust']);
     $extra_price = isset($_POST['extra_price']);
     $use_saved = isset($_POST['use_saved_headlines']);
+    $use_dki = isset($_POST['use_dki']);
     $save_client = isset($_POST['save_client']);
+    $aggressiveness = (int)($_POST['aggressiveness'] ?? 2); // 1=soft, 2=balanced, 3=aggressive
     
     $usps = Security::sanitizeArray($_POST['usps'] ?? [], 'alphanumeric');
     
@@ -1085,7 +2128,45 @@ function handleGenerateAll(array $industries): void {
         $extra_instruction .= "\n\nBEVÁLT SAJÁT HEADLINE-OK (használd ezeket is):\n" . implode("\n", array_slice($saved_headlines, 0, 5));
     }
     
-    $prompt = "Te egy magyar Google Ads szakértő vagy. Generálj AGRESSZÍV, FIGYELEMFELKELTŐ kampány anyagot.
+    // DKI instrukció
+    $dki_instruction = '';
+    if ($use_dki) {
+        $dki_instruction = "
+9. FONTOS: HASZNÁLJ Dynamic Keyword Insertion-t (DKI) 2-3 headline-ban!
+   Formátum: {KeyWord:Alapértelmezett Szöveg}
+   Az iparág alapján jó DKI-k:
+   - {KeyWord:" . ucfirst($industry['name']) . "}
+   - {KeyWord:" . ucfirst($industry['name']) . "} " . $area_text . "
+   - {KeyWord:Szakértő} " . $area_text . "
+   Ezek BESZÁMÍTANAK a 30 karakterbe, az alapértelmezett szöveggel számolj!";
+    } else {
+        $dki_instruction = "
+9. NE használj Dynamic Keyword Insertion-t ({KeyWord:...})";
+    }
+    
+    // Aggresszivitás szint
+    $aggressivenessText = match($aggressiveness) {
+        1 => "SOFT/PROFESSZIONÁLIS HANGNEM:
+- Nyugodt, megbízható hangvétel
+- Kevés felkiáltójel
+- Informatív, nem nyomulós
+- Példa: \"Professzionális Duguláselhárítás\"",
+        3 => "ERŐS/SÜRGETŐ HANGNEM:
+- Sürgető szavak: Most, Azonnal, Ma, Gyorsan
+- Erős érzelmi triggerek
+- Számok és konkrét ígéretek
+- Példa: \"Dugulás? 25 Perc és Ott Vagyunk!\"",
+        default => "BALANCED HANGNEM:
+- Kiegyensúlyozott stílus
+- Mérsékelt sürgősség
+- Professzionális de meggyőző
+- Példa: \"Gyors Duguláselhárítás Budapest\""
+    };
+    
+    $prompt = "Te egy magyar Google Ads szakértő vagy. Generálj kampány anyagot az alábbi stílusban.
+
+STÍLUS BEÁLLÍTÁS:
+$aggressivenessText
 
 IPARÁG: {$industry['name']}
 CÉG: $company_name | Telefon: " . ($phone ?: 'nincs') . " | Terület: $area_text
@@ -1093,18 +2174,26 @@ USP-k: " . (count($usp_texts) ? implode(', ', $usp_texts) : 'nincs') . "
 TÍPUS: " . ($ad_type === 'callonly' ? 'Call-Only' : ($ad_type === 'both' ? 'Mindkettő' : 'RSA')) . "
 $extra_instruction
 
-A SZÖVEGEK LEGYENEK:
-- SÜRGŐSSÉGRE ÖSZTÖNZŐK (\"Most\", \"Azonnal\", számok)
-- EGYEDIEK, NE ÁTLAGOSAK
-- BIZALOMÉPÍTŐK (garancia, tapasztalat, értékelés)
-- ÉRZELMI TRIGGEREK (félelem a problémától, megoldás öröme)
+⚠️ FONTOS GOOGLE ADS SZABÁLYOK - KÖTELEZŐ BETARTANI:
+1. HEADLINE: SZIGORÚAN MAX 30 KARAKTER (szóközökkel együtt!)
+2. DESCRIPTION: MAX 90 KARAKTER
+3. TILOS: Emoji, speciális karakterek (🚨❌✓★🌙 stb.) - SEMMILYEN EMOJI!
+4. TILOS: CSUPA NAGYBETŰ (pl. \"DUGULÁS\" helyett \"Dugulás\")
+5. Használj Title Case formátumot (minden szó nagy kezdőbetűvel)
+6. Max 1 felkiáltójel headline-onként
+7. Számok megengedettek (pl. \"30 Perc\", \"24/7\")
+8. MINDEN HEADLINE TELJESEN EGYEDI LEGYEN - semmi hasonló se!
+9. KÖTELEZŐ MAGYAR ÉKEZETES BETŰK: á, é, í, ó, ö, ő, ú, ü, ű (NE írd ékezet nélkül!)
+   Helyes: \"Éjjel-Nappal\" NEM \"Ejjel-Nappal\"
+   Helyes: \"Dugulás\" NEM \"Dugulas\"
+$dki_instruction
 
 GENERÁLJ JSON-ben:
 {
-    \"headlines\": [{\"text\": \"max 30 kar\"}] (15 db, legyenek EGYEDIEK és AGRESSZÍVEK),
-    \"descriptions\": [{\"text\": \"max 90 kar\"}] (4 db),
+    \"headlines\": [{\"text\": \"PONTOSAN max 30 karakter, Title Case, NO EMOJI, EGYEDI\"}] (15 db, MIND KÜLÖNBÖZŐ!, 2-3 db DKI-val),
+    \"descriptions\": [{\"text\": \"max 90 kar, részletes, különböző szempontok\"}] (4 db, MIND KÜLÖNBÖZŐ!),
     \"callonly\": [{\"business\": \"max 25\", \"desc1\": \"max 35\", \"desc2\": \"max 35\"}] (5 db),
-    \"sitelinks\": [{\"title\": \"...\", \"desc\": \"...\"}] (4 db),
+    \"sitelinks\": [{\"title\": \"max 25\", \"desc\": \"max 35\"}] (4 db),
     \"callouts\": [\"max 25 kar\"] (6 db),
     \"keywords\": [\"kulcsszó\"] (10 db),
     \"negatives\": [\"negatív\"] (10 db)
@@ -1113,14 +2202,163 @@ GENERÁLJ JSON-ben:
     $response = callAnthropicAPI($prompt);
     $data = parseJsonResponse($response);
     
+    // === HEADLINE VALIDÁCIÓ ÉS TISZTÍTÁS ===
+    if (isset($data['headlines'])) {
+        $data['headlines'] = array_map(function($h) {
+            $text = is_array($h) ? ($h['text'] ?? '') : $h;
+            
+            // ÖSSZES emoji eltávolítása (bővített regex)
+            $text = preg_replace('/[\x{1F000}-\x{1FFFF}]/u', '', $text); // Összes emoji blokk
+            $text = preg_replace('/[\x{2600}-\x{27BF}]/u', '', $text);   // Misc symbols & Dingbats
+            $text = preg_replace('/[\x{FE00}-\x{FEFF}]/u', '', $text);   // Variation Selectors
+            $text = preg_replace('/[\x{2300}-\x{23FF}]/u', '', $text);   // Misc Technical
+            $text = preg_replace('/[\x{2B50}]/u', '', $text);            // Csillag
+            $text = preg_replace('/[\x{203C}\x{2049}]/u', '', $text);    // Felkiáltójelek
+            
+            // Speciális karakterek tisztítása
+            $text = str_replace(['★', '☆', '✓', '✔', '✗', '✘', '►', '▶', '●', '○', '■', '□', '🌙', '⭐', '🔥', '💯', '✨'], '', $text);
+            
+            // CAPS javítás - Title Case (de csak ha TELJESEN nagybetűs)
+            // Megőrizzük az ékezeteket!
+            if (preg_match('/^[A-ZÁÉÍÓÖŐÚÜŰ\s\d\?\!\=\-]+$/u', $text) && mb_strlen($text) > 3) {
+                $text = mb_convert_case(mb_strtolower($text, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
+            }
+            
+            // Dupla szóközök eltávolítása
+            $text = preg_replace('/\s+/', ' ', trim($text));
+            
+            // Max 30 karakter - levágás ha szükséges (szóhatáron)
+            if (mb_strlen($text) > 30) {
+                $text = mb_substr($text, 0, 30);
+                // Ha szó közepén vágtuk, visszamegyünk az utolsó szóközig
+                $lastSpace = mb_strrpos($text, ' ');
+                if ($lastSpace > 20) {
+                    $text = mb_substr($text, 0, $lastSpace);
+                }
+                }
+            }
+            
+            if (is_array($h)) {
+                $h['text'] = $text;
+                return $h;
+            }
+            return ['text' => $text];
+        }, $data['headlines']);
+        
+        // Duplikátumok eltávolítása - ÉKEZET-FÜGGETLEN összehasonlítás
+        $seen = [];
+        $data['headlines'] = array_filter($data['headlines'], function($h) use (&$seen) {
+            $text = $h['text'] ?? '';
+            if (empty(trim($text))) return false;
+            
+            // Normalizáljuk összehasonlításhoz (ékezet eltávolítás)
+            $normalized = mb_strtolower($text, 'UTF-8');
+            $normalized = strtr($normalized, [
+                'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ö' => 'o', 'ő' => 'o',
+                'ú' => 'u', 'ü' => 'u', 'ű' => 'u',
+                'Á' => 'a', 'É' => 'e', 'Í' => 'i', 'Ó' => 'o', 'Ö' => 'o', 'Ő' => 'o',
+                'Ú' => 'u', 'Ü' => 'u', 'Ű' => 'u'
+            ]);
+            // Szóközök és írásjelek eltávolítása az összehasonlításhoz
+            $normalized = preg_replace('/[^a-z0-9]/u', '', $normalized);
+            
+            if (isset($seen[$normalized])) return false;
+            $seen[$normalized] = true;
+            return true;
+        });
+        $data['headlines'] = array_values($data['headlines']);
+    }
+    
+    // Description validáció
+    if (isset($data['descriptions'])) {
+        $data['descriptions'] = array_map(function($d) {
+            $text = is_array($d) ? ($d['text'] ?? '') : $d;
+            
+            // ÖSSZES emoji eltávolítása
+            $text = preg_replace('/[\x{1F000}-\x{1FFFF}]/u', '', $text);
+            $text = preg_replace('/[\x{2600}-\x{27BF}]/u', '', $text);
+            
+            // Speciális karakterek tisztítása
+            $text = str_replace(['★', '☆', '✓', '✔', '✗', '✘', '►', '▶', '🌙', '⭐'], '', $text);
+            
+            // Dupla szóközök
+            $text = preg_replace('/\s+/', ' ', trim($text));
+            
+            // Max 90 karakter
+            if (mb_strlen($text) > 90) {
+                $text = mb_substr($text, 0, 90);
+                $lastSpace = mb_strrpos($text, ' ');
+                if ($lastSpace > 70) {
+                    $text = mb_substr($text, 0, $lastSpace);
+                }
+            }
+            
+            if (is_array($d)) {
+                $d['text'] = $text;
+                return $d;
+            }
+            return ['text' => $text];
+        }, $data['descriptions']);
+    }
+    
     // Extra headlines hozzáadása az eredményhez
     if (!empty($extra_texts) && isset($data['headlines'])) {
         foreach (array_slice($extra_texts, 0, 5) as $et) {
-            if (mb_strlen($et) <= 30) {
+            // Extra headline-ok is validálva
+            $et = preg_replace('/[\x{1F600}-\x{1F9FF}]/u', '', $et);
+            $et = preg_replace('/\s+/', ' ', trim($et));
+            if (mb_strlen($et) <= 30 && !empty($et)) {
                 array_unshift($data['headlines'], ['text' => $et, 'extra' => true]);
             }
         }
     }
+    
+    // TELJES EREDMÉNY MENTÉSE - hogy visszalépéskor is látszódjon
+    $savedResult = [
+        'id' => uniqid('gen_'),
+        'headlines' => array_map(function($h) { return is_array($h) ? $h['text'] : $h; }, $data['headlines'] ?? []),
+        'descriptions' => array_map(function($d) { return is_array($d) ? $d['text'] : $d; }, $data['descriptions'] ?? []),
+        'callonly' => $data['callonly'] ?? [],
+        'sitelinks' => $data['sitelinks'] ?? [],
+        'callouts' => $data['callouts'] ?? [],
+        'keywords' => $data['keywords'] ?? [],
+        'negatives' => $data['negatives'] ?? [],
+        'lastUpdate' => date('Y-m-d H:i:s'),
+        'company' => $company_name,
+        'industry' => $industry['name'],
+        'industry_key' => $industry_key,
+        'phone' => $phone,
+        'area' => $area_text,
+        'ad_type' => $ad_type,
+        'bid_strategy' => $bid_strategy
+    ];
+    
+    // Mentés legutóbbi eredményként
+    file_put_contents(__DIR__ . '/data/last_result.json', json_encode($savedResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    
+    // ELŐZMÉNYEK MENTÉSE (max 20 db)
+    $historyFile = __DIR__ . '/data/generation_history.json';
+    $history = file_exists($historyFile) ? json_decode(file_get_contents($historyFile), true) : [];
+    if (!is_array($history)) $history = [];
+    
+    // Új elem az elejére
+    array_unshift($history, $savedResult);
+    
+    // Max 20 előzmény
+    $history = array_slice($history, 0, 20);
+    
+    file_put_contents($historyFile, json_encode($history, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    
+    // Mentés Chrome Extension számára is
+    $extensionData = [
+        'headlines' => $savedResult['headlines'],
+        'descriptions' => $savedResult['descriptions'],
+        'callonly' => $savedResult['callonly'],
+        'lastUpdate' => $savedResult['lastUpdate'],
+        'company' => $company_name,
+        'industry' => $industry['name']
+    ];
+    file_put_contents(__DIR__ . '/data/extension_data.json', json_encode($extensionData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     
     // Render results
     echo '<div class="results-wrapper">';
@@ -1137,10 +2375,32 @@ GENERÁLJ JSON-ben:
     // Headlines (RSA)
     if (!empty($data['headlines']) && $ad_type !== 'callonly') {
         echo '<div class="card"><h3 class="card-title">📝 Headlines ('.count($data['headlines']).')</h3>';
+        echo '<p class="help-text">Google Ads szabály: max 30 karakter | <span class="dki-badge">🔄 DKI</span> = Dynamic Keyword Insertion</p>';
         echo '<div class="copy-list">';
         foreach ($data['headlines'] as $h) {
             $text = $h['text'] ?? $h;
-            echo '<div class="copy-item"><span>'.htmlspecialchars($text).'</span><small>'.mb_strlen($text).'/30</small></div>';
+            $len = mb_strlen($text);
+            $isOver = $len > 30;
+            $isDki = strpos($text, '{KeyWord:') !== false;
+            $hasEmoji = preg_match('/[\x{1F600}-\x{1F9FF}]/u', $text);
+            $class = ($isOver || $hasEmoji) ? 'copy-item error' : ($isDki ? 'copy-item dki' : 'copy-item');
+            $dkiBadge = $isDki ? '<span class="dki-tag">🔄 DKI</span>' : '';
+            echo '<div class="'.$class.'"><span>'.htmlspecialchars($text).'</span>'.$dkiBadge.'<small class="'.($isOver ? 'over' : '').'">'.$len.'/30</small></div>';
+        }
+        echo '</div></div>';
+    }
+    
+    // Descriptions (RSA) - JAVÍTVA: HIÁNYZOTT!
+    if (!empty($data['descriptions']) && $ad_type !== 'callonly') {
+        echo '<div class="card"><h3 class="card-title">📝 Descriptions ('.count($data['descriptions']).')</h3>';
+        echo '<p class="help-text">Google Ads szabály: max 90 karakter</p>';
+        echo '<div class="copy-list">';
+        foreach ($data['descriptions'] as $d) {
+            $text = is_array($d) ? ($d['text'] ?? '') : $d;
+            $len = mb_strlen($text);
+            $isOver = $len > 90;
+            $class = $isOver ? 'copy-item error' : 'copy-item';
+            echo '<div class="'.$class.'"><span>'.htmlspecialchars($text).'</span><small class="'.($isOver ? 'over' : '').'">'.$len.'/90</small></div>';
         }
         echo '</div></div>';
     }
