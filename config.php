@@ -23,6 +23,23 @@ define('DEMO_MODE', false);
 define('ANTHROPIC_API_KEY', getenv('ANTHROPIC_API_KEY') ?: '');
 
 // ============================================
+// ADMIN BELÉPÉS BEÁLLÍTÁSOK
+// ============================================
+// Kapcsold be ha szeretnél login-t megkövetelni
+define('REQUIRE_LOGIN', true);
+
+// Admin felhasználónév
+define('ADMIN_USERNAME', 'admin');
+
+// Admin jelszó HASH-elve! 
+// Generáláshoz használd: php -r "echo password_hash('titkosjelszó', PASSWORD_ARGON2ID);"
+// FONTOS: Cseréld ki saját hash-re!
+define('ADMIN_PASSWORD_HASH', getenv('ADMIN_PASSWORD_HASH') ?: '');
+
+// Legacy - ha nincs hash, ez lesz használva (NEM AJÁNLOTT production-ben!)
+define('ADMIN_PASSWORD', getenv('ADMIN_PASSWORD') ?: 'admin123');
+
+// ============================================
 // ADATBÁZIS BEÁLLÍTÁSOK (OPCIONÁLIS)
 // ============================================
 // Ha üres, fájl alapú tárolás lesz használva
@@ -59,9 +76,8 @@ define('LOG_DIR', __DIR__ . '/logs/');
 define('LOG_LEVEL', APP_DEBUG ? 'debug' : 'error');
 
 // Alkalmazás info
-// Alkalmazás info
 define('APP_NAME', 'AdMaster Pro');
-define('APP_VERSION', '5.0.6');
+define('APP_VERSION', '5.8.0');
 define('DB_REQUIRED', true); // Adatbázis KÖTELEZŐ v5.0-tól
 
 // SerpApi kulcs (versenytárs figyeléshez)
@@ -76,6 +92,7 @@ define('GOOGLE_ADS_DEVELOPER_TOKEN', getenv('GOOGLE_ADS_DEVELOPER_TOKEN') ?: '')
 define('GOOGLE_ADS_CLIENT_ID', getenv('GOOGLE_ADS_CLIENT_ID') ?: '');
 define('GOOGLE_ADS_CLIENT_SECRET', getenv('GOOGLE_ADS_CLIENT_SECRET') ?: '');
 define('GOOGLE_ADS_REFRESH_TOKEN', getenv('GOOGLE_ADS_REFRESH_TOKEN') ?: '');
+define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', getenv('GOOGLE_ADS_LOGIN_CUSTOMER_ID') ?: '');
 
 /**
  * Error handler beállítás
@@ -93,7 +110,7 @@ if (!APP_DEBUG) {
 /**
  * Könyvtárak létrehozása ha nem léteznek
  */
-$directories = [PROJECTS_DIR, LOG_DIR];
+$directories = [PROJECTS_DIR, LOG_DIR, __DIR__ . '/data/', __DIR__ . '/backups/'];
 foreach ($directories as $dir) {
     if (!is_dir($dir)) {
         @mkdir($dir, 0750, true);

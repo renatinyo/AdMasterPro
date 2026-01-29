@@ -3,13 +3,19 @@
  * AdMaster Pro - Security Class
  * 
  * Biztonsági funkciók:
+ * - Admin authentikáció
  * - CSRF védelem
  * - Rate limiting
  * - Input validáció
  * - Session kezelés
+ * - Brute force védelem
  */
 
 class Security {
+    
+    // Brute force védelem
+    private const MAX_LOGIN_ATTEMPTS = 5;
+    private const LOCKOUT_TIME = 900; // 15 perc
     
     /**
      * Biztonságos session indítás
@@ -69,6 +75,182 @@ class Security {
             $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? ''
         ];
         return hash('sha256', implode('|', $data));
+    }
+    
+    // ========================================
+    // ADMIN AUTHENTIKÁCIÓ
+    // ========================================
+    
+    /**
+     * Admin belépés ellenőrzése
+     */
+    public static function isLoggedIn(): bool {
+        return isset($_SESSION['admin_logged_in']) 
+            && $_SESSION['admin_logged_in'] === true
+            && isset($_SESSION['admin_login_time'])
+            && (time() - $_SESSION['admin_login_time']) < SESSION_LIFETIME;
+    }
+    
+    /**
+     * Admin beléptetés
+     */
+    public static function login(string $username, string $password): array {
+        // Brute force ellenőrzés
+        if (self::isLockedOut()) {
+            $remaining = self::getLockoutRemaining();
+            return [
+                'success' => false, 
+                'error' => "Túl sok sikertelen próbálkozás. Próbáld újra {$remaining} perc múlva."
+            ];
+        }
+        
+        // Credentials ellenőrzés
+        $adminUser = defined('ADMIN_USERNAME') ? ADMIN_USERNAME : 'admin';
+        $adminPassHash = defined('ADMIN_PASSWORD_HASH') ? ADMIN_PASSWORD_HASH : '';
+        
+        // Ha nincs hash beállítva, használjuk a legacy ADMIN_PASSWORD-ot
+        if (empty($adminPassHash) && defined('ADMIN_PASSWORD')) {
+            $adminPassHash = password_hash(ADMIN_PASSWORD, PASSWORD_ARGON2ID);
+        }
+        
+        if (empty($adminPassHash)) {
+            return ['success' => false, 'error' => 'Admin jelszó nincs beállítva a config.php-ban!'];
+        }
+        
+        // Username ellenőrzés (timing-safe)
+        $usernameValid = hash_equals($adminUser, $username);
+        
+        // Jelszó ellenőrzés
+        $passwordValid = password_verify($password, $adminPassHash);
+        
+        if ($usernameValid && $passwordValid) {
+            // Sikeres belépés
+            self::clearLoginAttempts();
+            session_regenerate_id(true);
+            
+            $_SESSION['admin_logged_in'] = true;
+            $_SESSION['admin_login_time'] = time();
+            $_SESSION['admin_username'] = $username;
+            $_SESSION['admin_ip'] = $_SERVER['REMOTE_ADDR'] ?? '';
+            
+            self::log('info', 'Admin login successful', ['username' => $username, 'ip' => $_SESSION['admin_ip']]);
+            
+            return ['success' => true];
+        }
+        
+        // Sikertelen belépés
+        self::recordFailedLogin();
+        self::log('warning', 'Admin login failed', ['username' => $username, 'ip' => $_SERVER['REMOTE_ADDR'] ?? '']);
+        
+        return ['success' => false, 'error' => 'Hibás felhasználónév vagy jelszó.'];
+    }
+    
+    /**
+     * Admin kiléptetés
+     */
+    public static function logout(): void {
+        self::log('info', 'Admin logout', ['username' => $_SESSION['admin_username'] ?? 'unknown']);
+        
+        $_SESSION = [];
+        
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(session_name(), '', time() - 42000,
+                $params['path'], $params['domain'],
+                $params['secure'], $params['httponly']
+            );
+        }
+        
+        session_destroy();
+    }
+    
+    /**
+     * Login oldal megjelenítése szükséges?
+     */
+    public static function requireLogin(): bool {
+        // Ha REQUIRE_LOGIN nincs bekapcsolva, mindenki használhatja
+        if (!defined('REQUIRE_LOGIN') || !REQUIRE_LOGIN) {
+            return false;
+        }
+        
+        return !self::isLoggedIn();
+    }
+    
+    /**
+     * Brute force - lockout ellenőrzés
+     */
+    private static function isLockedOut(): bool {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $key = 'login_attempts_' . md5($ip);
+        
+        if (!isset($_SESSION[$key])) {
+            return false;
+        }
+        
+        $data = $_SESSION[$key];
+        
+        // Lockout lejárt?
+        if (isset($data['lockout_until']) && time() > $data['lockout_until']) {
+            unset($_SESSION[$key]);
+            return false;
+        }
+        
+        return isset($data['lockout_until']);
+    }
+    
+    /**
+     * Lockout hátralévő idő (percben)
+     */
+    private static function getLockoutRemaining(): int {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $key = 'login_attempts_' . md5($ip);
+        
+        if (!isset($_SESSION[$key]['lockout_until'])) {
+            return 0;
+        }
+        
+        return max(0, ceil(($_SESSION[$key]['lockout_until'] - time()) / 60));
+    }
+    
+    /**
+     * Sikertelen belépési kísérlet rögzítése
+     */
+    private static function recordFailedLogin(): void {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $key = 'login_attempts_' . md5($ip);
+        
+        if (!isset($_SESSION[$key])) {
+            $_SESSION[$key] = ['attempts' => 0, 'first_attempt' => time()];
+        }
+        
+        $_SESSION[$key]['attempts']++;
+        $_SESSION[$key]['last_attempt'] = time();
+        
+        // Ha elérte a limitet, lockout
+        if ($_SESSION[$key]['attempts'] >= self::MAX_LOGIN_ATTEMPTS) {
+            $_SESSION[$key]['lockout_until'] = time() + self::LOCKOUT_TIME;
+            self::log('warning', 'IP locked out due to too many login attempts', ['ip' => $ip]);
+        }
+    }
+    
+    /**
+     * Login kísérletek törlése (sikeres belépés után)
+     */
+    private static function clearLoginAttempts(): void {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $key = 'login_attempts_' . md5($ip);
+        unset($_SESSION[$key]);
+    }
+    
+    /**
+     * Jelszó hash generálás (setup-hoz)
+     */
+    public static function hashPassword(string $password): string {
+        return password_hash($password, PASSWORD_ARGON2ID, [
+            'memory_cost' => 65536,
+            'time_cost' => 4,
+            'threads' => 3
+        ]);
     }
 
     /**
@@ -187,7 +369,7 @@ class Security {
 
             case 'alphanumeric':
                 // Betűk és számok
-                return preg_replace('/[^a-zA-Z0-9áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/', '', $input);
+                return preg_replace('/[^a-zA-Z0-9áéíóöőúüűÁÉÍÓÖŐÚÜŰ_\-]/', '', $input);
 
             case 'filename':
                 // Biztonságos fájlnév
@@ -315,5 +497,32 @@ class Security {
         }
 
         return true;
+    }
+    
+    /**
+     * XSS védett output
+     */
+    public static function e(string $string): string {
+        return htmlspecialchars($string, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+    
+    /**
+     * SQL injection védelem - prepared statement wrapper
+     */
+    public static function prepareValue($value, string $type = 'string'): string {
+        if ($value === null) {
+            return 'NULL';
+        }
+        
+        switch ($type) {
+            case 'int':
+                return (string)(int)$value;
+            case 'float':
+                return (string)(float)$value;
+            case 'bool':
+                return $value ? '1' : '0';
+            default:
+                return "'" . addslashes($value) . "'";
+        }
     }
 }

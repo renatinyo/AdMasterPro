@@ -1,198 +1,153 @@
 <?php
 /**
- * AdMaster Pro - Frissítő
+ * AdMaster Pro - Frissítő v2
  * 
- * Verziófrissítéseket kezel, adatbázis migrációkat futtat.
- * Az adatok MEGMARADNAK!
+ * Egyszerűsített verzió - csak a lényeg
  */
+
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
 require_once __DIR__ . '/config.php';
 
-session_start();
-
 $error = '';
 $success = '';
-$updates = [];
-
-// Jelenlegi app verzió
 $appVersion = APP_VERSION;
+$dbVersion = 'ismeretlen';
+$dbConnected = false;
+$pdo = null;
 
 // Adatbázis kapcsolat
 try {
-    $pdo = new PDO(
-        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
-        DB_USER,
-        DB_PASS,
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-    );
-} catch (PDOException $e) {
-    die('Adatbázis kapcsolat sikertelen. Futtasd az install.php-t!');
-}
-
-// DB verzió lekérése
-$stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'db_version'");
-$dbVersion = $stmt->fetchColumn() ?: '1.0.0';
-
-// Verzió összehasonlítás
-function versionCompare($v1, $v2) {
-    return version_compare($v1, $v2);
-}
-
-// Elérhető migrációk
-$migrations = [
-    '4.0.0' => [
-        'description' => 'Google Ads API és Vision támogatás',
-        'sql' => []
-    ],
-    '4.1.0' => [
-        'description' => 'AI Asszisztens chat history',
-        'sql' => [
-            "CREATE TABLE IF NOT EXISTS chat_history (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                session_id VARCHAR(100),
-                role ENUM('user', 'assistant') NOT NULL,
-                content TEXT NOT NULL,
-                suggestions JSON,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-        ]
-    ],
-    '4.2.0' => [
-        'description' => 'Eredmény mentés és DKI támogatás',
-        'sql' => [
-            "ALTER TABLE headlines ADD COLUMN IF NOT EXISTS is_dki BOOLEAN DEFAULT FALSE"
-        ]
-    ],
-    '5.0.0' => [
-        'description' => 'Teljes adatbázis alapú működés',
-        'sql' => [
-            "CREATE TABLE IF NOT EXISTS keyword_bank (
-                id VARCHAR(36) PRIMARY KEY,
-                keyword VARCHAR(255) NOT NULL,
-                industry VARCHAR(100),
-                type ENUM('positive', 'negative') DEFAULT 'positive',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            "CREATE TABLE IF NOT EXISTS headline_bank (
-                id VARCHAR(36) PRIMARY KEY,
-                text VARCHAR(30) NOT NULL,
-                industry VARCHAR(100),
-                rating INT DEFAULT 3,
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
-            "CREATE INDEX IF NOT EXISTS idx_keyword_bank_industry ON keyword_bank(industry)",
-            "CREATE INDEX IF NOT EXISTS idx_headline_bank_industry ON headline_bank(industry)"
-        ]
-    ]
-];
-
-// Szükséges frissítések meghatározása
-$pendingMigrations = [];
-foreach ($migrations as $version => $migration) {
-    if (versionCompare($dbVersion, $version) < 0) {
-        $pendingMigrations[$version] = $migration;
-    }
-}
-
-// Frissítés futtatása
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['run_update'])) {
-    try {
-        $pdo->beginTransaction();
+    if (defined('DB_HOST') && !empty(DB_HOST)) {
+        $pdo = new PDO(
+            "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+            DB_USER,
+            DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        $dbConnected = true;
         
-        foreach ($pendingMigrations as $version => $migration) {
-            foreach ($migration['sql'] as $sql) {
-                try {
-                    $pdo->exec($sql);
-                } catch (PDOException $e) {
-                    // Ha már létezik a tábla/oszlop, nem baj
-                    if (strpos($e->getMessage(), 'already exists') === false && 
-                        strpos($e->getMessage(), 'Duplicate') === false) {
-                        throw $e;
-                    }
-                }
-            }
-            $updates[] = "v$version: " . $migration['description'];
+        // DB verzió lekérése
+        try {
+            $stmt = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'db_version'");
+            $result = $stmt->fetchColumn();
+            $dbVersion = $result ?: 'nincs beállítva';
+        } catch (Exception $e) {
+            $dbVersion = 'settings tábla hiányzik';
         }
+    }
+} catch (PDOException $e) {
+    $error = 'DB hiba: ' . $e->getMessage();
+}
+
+// Verzió szinkronizálás
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sync_version']) && $dbConnected) {
+    try {
+        // Settings tábla létrehozása ha nincs
+        $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
+            setting_key VARCHAR(100) PRIMARY KEY,
+            setting_value TEXT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         
         // Verzió frissítése
-        $pdo->exec("UPDATE settings SET setting_value = '$appVersion' WHERE setting_key = 'db_version'");
+        $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) 
+                               VALUES ('db_version', ?) 
+                               ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$appVersion, $appVersion]);
         
-        // .installed fájl frissítése
-        file_put_contents(__DIR__ . '/data/.installed', date('Y-m-d H:i:s') . "\nVersion: $appVersion\nUpdated from: $dbVersion");
-        
-        $pdo->commit();
-        $success = 'Frissítés sikeres!';
+        $success = "✅ Verzió szinkronizálva: $appVersion";
         $dbVersion = $appVersion;
-        $pendingMigrations = [];
         
     } catch (Exception $e) {
-        $pdo->rollBack();
-        $error = 'Frissítés sikertelen: ' . $e->getMessage();
+        $error = 'Hiba: ' . $e->getMessage();
     }
 }
 
-// JSON adatok migrálása DB-be
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['migrate_json'])) {
-    $migrated = [];
+// Hiányzó táblák létrehozása
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_tables']) && $dbConnected) {
+    $created = [];
+    $errors = [];
     
-    try {
-        // Clients migráció
-        $clientsFile = __DIR__ . '/data/clients.json';
-        if (file_exists($clientsFile)) {
-            $clients = json_decode(file_get_contents($clientsFile), true) ?: [];
-            foreach ($clients as $client) {
-                $stmt = $pdo->prepare("INSERT IGNORE INTO clients (id, name, industry, phone, area, website, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([
-                    $client['id'],
-                    $client['name'],
-                    $client['industry'] ?? null,
-                    $client['phone'] ?? null,
-                    $client['area'] ?? null,
-                    $client['website'] ?? null,
-                    $client['created_at'] ?? date('Y-m-d H:i:s')
-                ]);
-            }
-            $migrated[] = count($clients) . ' ügyfél';
-        }
+    $tables = [
+        'settings' => "CREATE TABLE IF NOT EXISTS settings (
+            setting_key VARCHAR(100) PRIMARY KEY,
+            setting_value TEXT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         
-        // Keywords migráció
-        $keywordsFile = __DIR__ . '/data/keywords.json';
-        if (file_exists($keywordsFile)) {
-            $keywords = json_decode(file_get_contents($keywordsFile), true) ?: [];
-            foreach ($keywords['positive'] ?? [] as $kw) {
-                $stmt = $pdo->prepare("INSERT IGNORE INTO keyword_bank (id, keyword, industry, type) VALUES (?, ?, ?, 'positive')");
-                $stmt->execute([$kw['id'], $kw['keyword'], $kw['industry'] ?? null]);
-            }
-            foreach ($keywords['negative'] ?? [] as $kw) {
-                $stmt = $pdo->prepare("INSERT IGNORE INTO keyword_bank (id, keyword, industry, type) VALUES (?, ?, ?, 'negative')");
-                $stmt->execute([$kw['id'], $kw['keyword'], $kw['industry'] ?? null]);
-            }
-            $migrated[] = 'Kulcsszavak';
-        }
+        'clients' => "CREATE TABLE IF NOT EXISTS clients (
+            id VARCHAR(36) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            industry VARCHAR(100),
+            phone VARCHAR(50),
+            area VARCHAR(100),
+            website VARCHAR(255),
+            notes TEXT,
+            generations JSON,
+            last_generation DATETIME,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         
-        // Headlines migráció
-        $headlinesFile = __DIR__ . '/data/headlines.json';
-        if (file_exists($headlinesFile)) {
-            $headlines = json_decode(file_get_contents($headlinesFile), true) ?: [];
-            foreach ($headlines as $h) {
-                $stmt = $pdo->prepare("INSERT IGNORE INTO headline_bank (id, text, industry, rating, notes) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$h['id'], $h['text'], $h['industry'] ?? null, $h['rating'] ?? 3, $h['notes'] ?? null]);
-            }
-            $migrated[] = count($headlines) . ' headline';
-        }
+        'keyword_bank' => "CREATE TABLE IF NOT EXISTS keyword_bank (
+            id VARCHAR(36) PRIMARY KEY,
+            keyword VARCHAR(255) NOT NULL,
+            industry VARCHAR(100),
+            type ENUM('positive', 'negative') DEFAULT 'positive',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         
-        if (!empty($migrated)) {
-            $success = 'JSON adatok migrálva: ' . implode(', ', $migrated);
-        } else {
-            $success = 'Nincs migrálható adat.';
-        }
+        'headline_bank' => "CREATE TABLE IF NOT EXISTS headline_bank (
+            id VARCHAR(36) PRIMARY KEY,
+            text VARCHAR(30) NOT NULL,
+            industry VARCHAR(100),
+            rating INT DEFAULT 3,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         
-    } catch (Exception $e) {
-        $error = 'Migráció sikertelen: ' . $e->getMessage();
+        'chat_history' => "CREATE TABLE IF NOT EXISTS chat_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            session_id VARCHAR(100),
+            role ENUM('user', 'assistant') NOT NULL,
+            content TEXT NOT NULL,
+            suggestions JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        
+        'landing_audits' => "CREATE TABLE IF NOT EXISTS landing_audits (
+            id VARCHAR(36) PRIMARY KEY,
+            client_id VARCHAR(36),
+            url VARCHAR(500) NOT NULL,
+            score INT,
+            results JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    ];
+    
+    foreach ($tables as $name => $sql) {
+        try {
+            $pdo->exec($sql);
+            $created[] = $name;
+        } catch (Exception $e) {
+            $errors[] = "$name: " . $e->getMessage();
+        }
+    }
+    
+    if (empty($errors)) {
+        $success = "✅ Táblák létrehozva/ellenőrizve: " . implode(', ', $created);
+    } else {
+        $error = "Hibák: " . implode('; ', $errors);
     }
 }
 
+// Létező táblák lekérése
+$existingTables = [];
+if ($dbConnected) {
+    try {
+        $result = $pdo->query("SHOW TABLES");
+        $existingTables = $result->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {}
+}
 ?>
 <!DOCTYPE html>
 <html lang="hu">
@@ -204,89 +159,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['migrate_json'])) {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+            padding: 40px 20px;
         }
-        .updater {
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .card {
             background: white;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 500px;
-            width: 100%;
             overflow: hidden;
+            margin-bottom: 20px;
         }
-        .updater-header {
-            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        .card-header {
+            background: linear-gradient(135deg, #f97316, #ea580c);
             color: white;
-            padding: 30px;
+            padding: 24px;
             text-align: center;
         }
-        .updater-header h1 { font-size: 28px; margin-bottom: 8px; }
-        .updater-body { padding: 30px; }
+        .card-header h1 { font-size: 24px; margin-bottom: 4px; }
+        .card-header p { opacity: 0.9; font-size: 14px; }
+        .card-body { padding: 24px; }
         
-        .version-info {
+        .version-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .version-box {
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .version-box .label { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+        .version-box .value { font-size: 28px; font-weight: 700; }
+        .version-box .value.app { color: #22c55e; }
+        .version-box .value.db { color: #64748b; }
+        .version-box .value.match { color: #22c55e; }
+        .version-box .value.mismatch { color: #f59e0b; }
+        
+        .status-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px;
-            background: #f8fafc;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .version-box { text-align: center; }
-        .version-box .label { font-size: 12px; color: #6b7280; }
-        .version-box .value { font-size: 24px; font-weight: 700; }
-        .version-box .value.current { color: #6b7280; }
-        .version-box .value.new { color: #22c55e; }
-        .version-arrow { font-size: 24px; color: #94a3b8; }
-        
-        .migration-list {
-            background: #f8fafc;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 20px;
-        }
-        .migration-list h3 { font-size: 14px; margin-bottom: 12px; }
-        .migration-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 10px 0;
+            padding: 12px 0;
             border-bottom: 1px solid #e5e7eb;
-            font-size: 13px;
         }
-        .migration-item:last-child { border-bottom: none; }
-        .migration-version { 
-            background: #dbeafe; 
-            color: #1d4ed8; 
-            padding: 2px 8px; 
-            border-radius: 4px; 
-            font-weight: 600;
-            font-size: 11px;
-        }
+        .status-row:last-child { border-bottom: none; }
+        .status-label { color: #64748b; }
+        .status-value { font-weight: 600; }
+        .status-value.ok { color: #22c55e; }
+        .status-value.error { color: #ef4444; }
+        .status-value.warn { color: #f59e0b; }
         
         .btn {
             display: inline-block;
-            padding: 14px 28px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            color: white;
+            padding: 12px 24px;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            width: 100%;
-            text-align: center;
             text-decoration: none;
+            text-align: center;
+            transition: all 0.2s;
+            width: 100%;
             margin-bottom: 10px;
         }
-        .btn:hover { opacity: 0.9; }
-        .btn-secondary { background: linear-gradient(135deg, #6b7280, #4b5563); }
-        .btn-small { padding: 10px 16px; font-size: 14px; }
+        .btn-primary { background: linear-gradient(135deg, #22c55e, #16a34a); color: white; }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-secondary { background: #e5e7eb; color: #374151; }
+        .btn-secondary:hover { background: #d1d5db; }
         
         .alert {
             padding: 14px 18px;
@@ -296,101 +244,114 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['migrate_json'])) {
         }
         .alert-error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
         .alert-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-        .alert-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
         
-        .up-to-date {
-            text-align: center;
-            padding: 30px;
-        }
-        .up-to-date-icon {
-            width: 60px;
-            height: 60px;
-            background: #22c55e;
-            border-radius: 50%;
+        .tables-list {
             display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 16px;
-            font-size: 30px;
-            color: white;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .table-tag {
+            padding: 4px 10px;
+            background: #dbeafe;
+            color: #1d4ed8;
+            border-radius: 6px;
+            font-size: 12px;
         }
         
-        .divider {
-            height: 1px;
-            background: #e5e7eb;
-            margin: 20px 0;
+        .back-link {
+            display: block;
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            opacity: 0.8;
         }
+        .back-link:hover { opacity: 1; }
     </style>
 </head>
 <body>
-    <div class="updater">
-        <div class="updater-header">
-            <h1>🔄 AdMaster Pro</h1>
-            <p>Verziófrissítés</p>
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h1>🔄 AdMaster Pro</h1>
+                <p>Rendszer Frissítés & Karbantartás</p>
+            </div>
+            
+            <div class="card-body">
+                <?php if ($error): ?>
+                <div class="alert alert-error">❌ <?= htmlspecialchars($error) ?></div>
+                <?php endif; ?>
+                
+                <?php if ($success): ?>
+                <div class="alert alert-success"><?= $success ?></div>
+                <?php endif; ?>
+                
+                <div class="version-grid">
+                    <div class="version-box">
+                        <div class="label">Alkalmazás verzió</div>
+                        <div class="value app">v<?= $appVersion ?></div>
+                    </div>
+                    <div class="version-box">
+                        <div class="label">Adatbázis verzió</div>
+                        <div class="value <?= $dbVersion === $appVersion ? 'match' : 'mismatch' ?>">
+                            <?= is_numeric(substr($dbVersion, 0, 1)) ? 'v' . $dbVersion : $dbVersion ?>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-label">Adatbázis kapcsolat</span>
+                    <span class="status-value <?= $dbConnected ? 'ok' : 'error' ?>">
+                        <?= $dbConnected ? '✓ Kapcsolódva' : '✗ Nincs kapcsolat' ?>
+                    </span>
+                </div>
+                
+                <div class="status-row">
+                    <span class="status-label">PHP verzió</span>
+                    <span class="status-value ok"><?= PHP_VERSION ?></span>
+                </div>
+                
+                <?php if ($dbConnected && !empty($existingTables)): ?>
+                <div class="status-row">
+                    <span class="status-label">Létező táblák</span>
+                    <span class="status-value ok"><?= count($existingTables) ?> db</span>
+                </div>
+                <div class="tables-list">
+                    <?php foreach ($existingTables as $table): ?>
+                    <span class="table-tag"><?= htmlspecialchars($table) ?></span>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
         </div>
         
-        <div class="updater-body">
-            <?php if ($error): ?>
-            <div class="alert alert-error">❌ <?= htmlspecialchars($error) ?></div>
-            <?php endif; ?>
-            
-            <?php if ($success): ?>
-            <div class="alert alert-success">✅ <?= htmlspecialchars($success) ?></div>
-            <?php endif; ?>
-            
-            <div class="version-info">
-                <div class="version-box">
-                    <div class="label">Jelenlegi</div>
-                    <div class="value current">v<?= $dbVersion ?></div>
-                </div>
-                <div class="version-arrow">→</div>
-                <div class="version-box">
-                    <div class="label">Legújabb</div>
-                    <div class="value new">v<?= $appVersion ?></div>
-                </div>
+        <?php if ($dbConnected): ?>
+        <div class="card">
+            <div class="card-body">
+                <h3 style="margin-bottom: 16px;">🛠️ Műveletek</h3>
+                
+                <?php if ($dbVersion !== $appVersion): ?>
+                <form method="POST" style="margin-bottom: 10px;">
+                    <button type="submit" name="sync_version" class="btn btn-primary">
+                        🔄 Verzió szinkronizálása (<?= $appVersion ?>)
+                    </button>
+                </form>
+                <?php endif; ?>
+                
+                <form method="POST" style="margin-bottom: 10px;">
+                    <button type="submit" name="create_tables" class="btn btn-secondary">
+                        🗄️ Táblák létrehozása/ellenőrzése
+                    </button>
+                </form>
+                
+                <a href="install.php" class="btn btn-secondary">
+                    📦 Teljes újratelepítés (install.php)
+                </a>
             </div>
-            
-            <?php if (empty($pendingMigrations)): ?>
-            <div class="up-to-date">
-                <div class="up-to-date-icon">✓</div>
-                <h3>Naprakész!</h3>
-                <p style="color: #6b7280; margin-top: 8px;">Az adatbázis a legújabb verzión van.</p>
-            </div>
-            
-            <a href="index.php" class="btn btn-secondary">← Vissza az alkalmazáshoz</a>
-            
-            <?php else: ?>
-            
-            <div class="migration-list">
-                <h3>Elérhető frissítések:</h3>
-                <?php foreach ($pendingMigrations as $version => $migration): ?>
-                <div class="migration-item">
-                    <span class="migration-version">v<?= $version ?></span>
-                    <span><?= htmlspecialchars($migration['description']) ?></span>
-                </div>
-                <?php endforeach; ?>
-            </div>
-            
-            <div class="alert alert-info">
-                ℹ️ A frissítés NEM törli az adataidat. Biztonsági mentést mégis ajánlott készíteni!
-            </div>
-            
-            <form method="POST">
-                <button type="submit" name="run_update" class="btn">🚀 Frissítés indítása</button>
-            </form>
-            
-            <?php endif; ?>
-            
-            <div class="divider"></div>
-            
-            <h4 style="margin-bottom: 12px; font-size: 14px;">JSON → Adatbázis migráció</h4>
-            <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">
-                Ha korábban JSON fájlokban tároltál adatokat, ide migrálhatod őket.
-            </p>
-            <form method="POST">
-                <button type="submit" name="migrate_json" class="btn btn-secondary btn-small">📦 JSON adatok migrálása</button>
-            </form>
         </div>
+        <?php endif; ?>
+        
+        <a href="index.php" class="back-link">← Vissza az alkalmazáshoz</a>
     </div>
 </body>
 </html>

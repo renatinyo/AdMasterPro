@@ -198,4 +198,97 @@ class ClientManager {
         
         return $conflicts;
     }
+    
+    // === GENERÁLÁS MENTÉSE ÜGYFÉLHEZ ===
+    
+    /**
+     * Generált tartalom mentése az ügyfélhez
+     */
+    public function saveGenerationToClient(string $clientId, array $generationData): bool {
+        if (empty($clientId)) {
+            return false;
+        }
+        
+        $clients = $this->getClients();
+        
+        if (!isset($clients[$clientId])) {
+            return false;
+        }
+        
+        // Generálások listája
+        if (!isset($clients[$clientId]['generations'])) {
+            $clients[$clientId]['generations'] = [];
+        }
+        
+        // Új generálás hozzáadása
+        $generation = [
+            'id' => uniqid('gen_'),
+            'created_at' => date('Y-m-d H:i:s'),
+            'industry' => $generationData['industry'] ?? null,
+            'headlines' => $generationData['headlines'] ?? [],
+            'descriptions' => $generationData['descriptions'] ?? [],
+            'callonly' => $generationData['callonly'] ?? [],
+            'sitelinks' => $generationData['sitelinks'] ?? [],
+            'callouts' => $generationData['callouts'] ?? [],
+            'keywords' => $generationData['keywords'] ?? [],
+            'negatives' => $generationData['negatives'] ?? [],
+            'settings' => [
+                'formality' => $generationData['formality'] ?? 'informal',
+                'voice' => $generationData['voice'] ?? 'team',
+                'tone' => $generationData['psychological_tone'] ?? 'urgent',
+                'aggressiveness' => $generationData['aggressiveness'] ?? 2
+            ],
+            'qs_score' => $generationData['qs_score'] ?? null
+        ];
+        
+        // Max 20 generálás tárolása ügyfelenként
+        array_unshift($clients[$clientId]['generations'], $generation);
+        $clients[$clientId]['generations'] = array_slice($clients[$clientId]['generations'], 0, 20);
+        $clients[$clientId]['last_generation'] = date('Y-m-d H:i:s');
+        
+        file_put_contents($this->clientsFile, json_encode($clients, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        
+        return true;
+    }
+    
+    /**
+     * Ügyfél generálásainak lekérése
+     */
+    public function getClientGenerations(string $clientId): array {
+        $client = $this->getClient($clientId);
+        return $client['generations'] ?? [];
+    }
+    
+    /**
+     * Generálás törlése
+     */
+    public function deleteGeneration(string $clientId, string $generationId): bool {
+        $clients = $this->getClients();
+        
+        if (!isset($clients[$clientId])) {
+            return false;
+        }
+        
+        $generations = $clients[$clientId]['generations'] ?? [];
+        $found = false;
+        
+        foreach ($generations as $idx => $gen) {
+            if (($gen['id'] ?? '') === $generationId) {
+                unset($generations[$idx]);
+                $found = true;
+                break;
+            }
+        }
+        
+        if (!$found) {
+            return false;
+        }
+        
+        // Reindex array
+        $clients[$clientId]['generations'] = array_values($generations);
+        
+        file_put_contents($this->clientsFile, json_encode($clients, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        
+        return true;
+    }
 }

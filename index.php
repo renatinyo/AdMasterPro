@@ -1,17 +1,18 @@
 <?php
 /**
- * AdMaster Pro v3.3 - Teljes Kampány Kezelő
+ * AdMaster Pro v5.4 - Teljes Kampány Kezelő
  * 
  * Funkciók:
+ * - Admin belépés (biztonságos)
  * - Wizard alapú kampány generálás
  * - Ügyfél/cég kezelés
+ * - Élő RSA előnézet
+ * - Ad Strength indikátor
  * - Bevált headline bank
  * - Stratégiai javaslatok
- * - Extra figyelemfelkeltő szövegek
  * - Versenytárs elemzés
  * - Landing page CRO audit
- * - PMax asset generálás
- * - Dinamikus iparág létrehozás
+ * - Google Ads API integráció
  */
 
 require_once __DIR__ . '/config.php';
@@ -19,6 +20,23 @@ require_once __DIR__ . '/includes/Security.php';
 require_once __DIR__ . '/includes/ClientManager.php';
 
 Security::initSession();
+
+// ========================================
+// BELÉPÉS ELLENŐRZÉS
+// ========================================
+if (Security::requireLogin()) {
+    // Redirect a login oldalra
+    $redirect = urlencode($_SERVER['REQUEST_URI'] ?? 'index.php');
+    header("Location: login.php?redirect=$redirect");
+    exit;
+}
+
+// Logout kezelés
+if (isset($_GET['logout'])) {
+    Security::logout();
+    header('Location: login.php?logout=1');
+    exit;
+}
 
 $industries = require __DIR__ . '/data/industries.php';
 
@@ -84,33 +102,130 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-    <header>
+    <header class="header-compact">
         <div class="container">
             <div class="header-content">
-                <div class="logo">
-                    <h1><?= APP_NAME ?></h1>
+                <a href="?" class="logo">
+                    <span class="logo-icon">🚀</span>
+                    <span class="logo-text"><?= APP_NAME ?></span>
                     <span class="version">v<?= APP_VERSION ?></span>
-                </div>
+                </a>
+                
                 <nav class="main-nav">
-                    <a href="?tab=assistant" class="nav-link <?= $tab === 'assistant' ? 'active' : '' ?>">💬 Asszisztens</a>
-                    <a href="?tab=wizard" class="nav-link <?= $tab === 'wizard' ? 'active' : '' ?>">🚀 Kampány</a>
-                    <a href="?tab=publish" class="nav-link <?= $tab === 'publish' ? 'active' : '' ?>">📤 Közzététel</a>
-                    <a href="?tab=simulator" class="nav-link <?= $tab === 'simulator' ? 'active' : '' ?>">💸 Szimulátor</a>
-                    <a href="?tab=diagnosis" class="nav-link <?= $tab === 'diagnosis' ? 'active' : '' ?>">🧠 Diagnózis</a>
-                    <a href="?tab=clients" class="nav-link <?= $tab === 'clients' ? 'active' : '' ?>">🏢 Ügyfelek</a>
-                    <a href="?tab=keywords" class="nav-link <?= $tab === 'keywords' ? 'active' : '' ?>">🔤 Kulcsszavak</a>
-                    <a href="?tab=competitors" class="nav-link <?= $tab === 'competitors' ? 'active' : '' ?>">🔍 Versenytárs</a>
-                    <a href="?tab=landing" class="nav-link <?= $tab === 'landing' ? 'active' : '' ?>">🌐 Landing</a>
-                    <a href="?tab=pmax" class="nav-link <?= $tab === 'pmax' ? 'active' : '' ?>">📦 PMax</a>
-                    <a href="?tab=industries" class="nav-link <?= $tab === 'industries' ? 'active' : '' ?>">🏭 Iparágak</a>
-                    <a href="?tab=strategies" class="nav-link <?= $tab === 'strategies' ? 'active' : '' ?>">📋 Stratégiák</a>
+                    <!-- Fő menüpontok -->
+                    <a href="?tab=assistant" class="nav-link <?= $tab === 'assistant' ? 'active' : '' ?>">
+                        <span class="nav-icon">💬</span>
+                        <span class="nav-text">AI</span>
+                    </a>
+                    <a href="?tab=wizard" class="nav-link <?= $tab === 'wizard' ? 'active' : '' ?>">
+                        <span class="nav-icon">🚀</span>
+                        <span class="nav-text">Kampány</span>
+                    </a>
+                    
+                    <!-- Google Ads csoport -->
+                    <div class="nav-dropdown">
+                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['gads', 'publish', 'simulator', 'diagnosis']) ? 'active' : '' ?>">
+                            <span class="nav-icon">📊</span>
+                            <span class="nav-text">Ads</span>
+                            <span class="dropdown-arrow">▾</span>
+                        </button>
+                        <div class="nav-dropdown-menu">
+                            <a href="?tab=gads" class="<?= $tab === 'gads' ? 'active' : '' ?>">📊 Google Ads Sync</a>
+                            <a href="?tab=publish" class="<?= $tab === 'publish' ? 'active' : '' ?>">📤 Közzététel</a>
+                            <a href="?tab=simulator" class="<?= $tab === 'simulator' ? 'active' : '' ?>">💸 Költség Szimulátor</a>
+                            <a href="?tab=diagnosis" class="<?= $tab === 'diagnosis' ? 'active' : '' ?>">🧠 Fiók Diagnózis</a>
+                        </div>
+                    </div>
+                    
+                    <!-- Adatok csoport -->
+                    <div class="nav-dropdown">
+                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['clients', 'keywords', 'industries', 'strategies']) ? 'active' : '' ?>">
+                            <span class="nav-icon">📁</span>
+                            <span class="nav-text">Adatok</span>
+                            <span class="dropdown-arrow">▾</span>
+                        </button>
+                        <div class="nav-dropdown-menu">
+                            <a href="?tab=clients" class="<?= $tab === 'clients' ? 'active' : '' ?>">🏢 Ügyfelek</a>
+                            <a href="?tab=keywords" class="<?= $tab === 'keywords' ? 'active' : '' ?>">🔤 Kulcsszóbank</a>
+                            <a href="?tab=industries" class="<?= $tab === 'industries' ? 'active' : '' ?>">🏭 Iparágak</a>
+                            <a href="?tab=strategies" class="<?= $tab === 'strategies' ? 'active' : '' ?>">📋 Stratégiák</a>
+                        </div>
+                    </div>
+                    
+                    <!-- Eszközök csoport -->
+                    <div class="nav-dropdown">
+                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['competitors', 'landing', 'pmax']) ? 'active' : '' ?>">
+                            <span class="nav-icon">🔧</span>
+                            <span class="nav-text">Eszközök</span>
+                            <span class="dropdown-arrow">▾</span>
+                        </button>
+                        <div class="nav-dropdown-menu">
+                            <a href="?tab=landing" class="<?= $tab === 'landing' ? 'active' : '' ?>">🌐 Landing Elemző</a>
+                            <a href="?tab=competitors" class="<?= $tab === 'competitors' ? 'active' : '' ?>">🔍 Versenytárs</a>
+                            <a href="?tab=pmax" class="<?= $tab === 'pmax' ? 'active' : '' ?>">📦 PMax</a>
+                        </div>
+                    </div>
                 </nav>
+                
                 <div class="header-right">
                     <?php if (DEMO_MODE): ?><span class="badge badge-warning">Demo</span><?php endif; ?>
+                    <?php if (Security::isLoggedIn()): ?>
+                    <div class="user-dropdown">
+                        <button class="user-btn">
+                            <span class="user-avatar">👤</span>
+                            <span class="user-name"><?= Security::e($_SESSION['admin_username'] ?? 'Admin') ?></span>
+                            <span class="dropdown-arrow">▾</span>
+                        </button>
+                        <div class="user-dropdown-menu">
+                            <a href="settings.php">⚙️ Beállítások</a>
+                            <a href="update.php">🔄 Frissítés</a>
+                            <hr>
+                            <a href="?logout=1" class="logout">🚪 Kijelentkezés</a>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
+                
+                <!-- Mobil menü gomb -->
+                <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
             </div>
         </div>
     </header>
+    
+    <!-- Mobil menü -->
+    <div class="mobile-menu" id="mobileMenu">
+        <div class="mobile-menu-header">
+            <span>Menü</span>
+            <button onclick="toggleMobileMenu()">✕</button>
+        </div>
+        <nav class="mobile-nav">
+            <a href="?tab=assistant" class="<?= $tab === 'assistant' ? 'active' : '' ?>">💬 AI Asszisztens</a>
+            <a href="?tab=wizard" class="<?= $tab === 'wizard' ? 'active' : '' ?>">🚀 Kampány Generálás</a>
+            <div class="mobile-nav-group">
+                <div class="mobile-nav-title">📊 Google Ads</div>
+                <a href="?tab=gads" class="<?= $tab === 'gads' ? 'active' : '' ?>">Sync</a>
+                <a href="?tab=publish" class="<?= $tab === 'publish' ? 'active' : '' ?>">Közzététel</a>
+                <a href="?tab=simulator" class="<?= $tab === 'simulator' ? 'active' : '' ?>">Szimulátor</a>
+                <a href="?tab=diagnosis" class="<?= $tab === 'diagnosis' ? 'active' : '' ?>">Diagnózis</a>
+            </div>
+            <div class="mobile-nav-group">
+                <div class="mobile-nav-title">📁 Adatok</div>
+                <a href="?tab=clients" class="<?= $tab === 'clients' ? 'active' : '' ?>">Ügyfelek</a>
+                <a href="?tab=keywords" class="<?= $tab === 'keywords' ? 'active' : '' ?>">Kulcsszavak</a>
+                <a href="?tab=industries" class="<?= $tab === 'industries' ? 'active' : '' ?>">Iparágak</a>
+                <a href="?tab=strategies" class="<?= $tab === 'strategies' ? 'active' : '' ?>">Stratégiák</a>
+            </div>
+            <div class="mobile-nav-group">
+                <div class="mobile-nav-title">🔧 Eszközök</div>
+                <a href="?tab=landing" class="<?= $tab === 'landing' ? 'active' : '' ?>">Landing Elemző</a>
+                <a href="?tab=competitors" class="<?= $tab === 'competitors' ? 'active' : '' ?>">Versenytárs</a>
+                <a href="?tab=pmax" class="<?= $tab === 'pmax' ? 'active' : '' ?>">PMax</a>
+            </div>
+            <hr>
+            <a href="settings.php">⚙️ Beállítások</a>
+            <a href="?logout=1" class="logout">🚪 Kijelentkezés</a>
+        </nav>
+    </div>
 
     <main>
         <div class="container">
@@ -287,14 +402,15 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                         ?>
                         <div class="form-group">
                             <label>Mentett ügyfél betöltése</label>
-                            <select id="loadClient" class="form-control" onchange="loadClientData(this.value)">
+                            <select id="loadClient" name="client_id" class="form-control" onchange="loadClientData(this)">
                                 <option value="">-- Válassz vagy töltsd ki kézzel --</option>
                                 <?php foreach ($clients as $c): ?>
-                                <option value="<?= htmlspecialchars(json_encode($c)) ?>" <?= $selectedClient && $selectedClient['id'] === $c['id'] ? 'selected' : '' ?>>
+                                <option value="<?= $c['id'] ?>" data-json="<?= htmlspecialchars(json_encode($c)) ?>" <?= $selectedClient && $selectedClient['id'] === $c['id'] ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($c['name']) ?> (<?= $c['industry'] ?? 'n/a' ?>)
                                 </option>
                                 <?php endforeach; ?>
                             </select>
+                            <p class="help-text">💾 A generált tartalom automatikusan mentésre kerül az ügyfélhez</p>
                         </div>
                         <?php endif; ?>
                         
@@ -379,7 +495,66 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                     </div>
                     
                     <div class="card">
+                        <h3 class="card-title">🎭 Pszichológiai Tónus</h3>
+                        <p class="help-text">Válaszd ki a hirdetések fő érzelmi hatását</p>
+                        
+                        <div class="tone-selector">
+                            <label class="tone-option" onclick="selectTone(this)">
+                                <input type="radio" name="psychological_tone" value="urgent" checked>
+                                <div class="tone-icon">🚨</div>
+                                <div class="tone-name">Sürgető</div>
+                                <div class="tone-desc">SOS helyzetek, azonnali cselekvés</div>
+                            </label>
+                            <label class="tone-option" onclick="selectTone(this)">
+                                <input type="radio" name="psychological_tone" value="trust">
+                                <div class="tone-icon">🏆</div>
+                                <div class="tone-name">Bizalomépítő</div>
+                                <div class="tone-desc">Megbízhatóság, tapasztalat</div>
+                            </label>
+                            <label class="tone-option" onclick="selectTone(this)">
+                                <input type="radio" name="psychological_tone" value="value">
+                                <div class="tone-icon">💰</div>
+                                <div class="tone-name">Ár-fókuszú</div>
+                                <div class="tone-desc">Érték, megtakarítás</div>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
                         <h3 class="card-title">🔥 Hangnem & Stílus</h3>
+                        
+                        <!-- Megszólítás -->
+                        <div class="style-toggles">
+                            <div class="toggle-group">
+                                <label class="toggle-label">Megszólítás:</label>
+                                <div class="toggle-buttons">
+                                    <label class="toggle-btn">
+                                        <input type="radio" name="formality" value="informal" checked>
+                                        <span>👋 Tegezés</span>
+                                    </label>
+                                    <label class="toggle-btn">
+                                        <input type="radio" name="formality" value="formal">
+                                        <span>🎩 Magázás</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="toggle-group">
+                                <label class="toggle-label">Kommunikáció:</label>
+                                <div class="toggle-buttons">
+                                    <label class="toggle-btn">
+                                        <input type="radio" name="voice" value="team" checked>
+                                        <span>👥 Csapat (Mi)</span>
+                                    </label>
+                                    <label class="toggle-btn">
+                                        <input type="radio" name="voice" value="solo">
+                                        <span>👤 Egyéni (Én)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="divider"></div>
                         
                         <!-- Aggresszivitás Csúszka -->
                         <div class="aggressiveness-slider">
@@ -516,12 +691,16 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
         <div class="last-result-actions">
             <button class="btn btn-secondary" onclick="copyAllHeadlines()">📋 Headlines</button>
             <button class="btn btn-secondary" onclick="copyAllDescriptions()">📋 Descriptions</button>
+            <button class="btn btn-success" onclick="showSaveToClientModal()">💾 Mentés Ügyfélhez</button>
             <a href="?tab=publish" class="btn btn-secondary">📤 Közzététel</a>
             <button class="btn btn-primary" onclick="document.getElementById('generateBtn').scrollIntoView({behavior:'smooth'}); document.getElementById('generateBtn').classList.add('pulse');">🔄 Új Generálás</button>
         </div>
     </div>
     
     <script>
+    // Last result data - frissíti a globális változót
+    lastResultData = <?= json_encode($lastResult) ?>;
+    
     function copyAllHeadlines() {
         const headlines = <?= json_encode($lastResult['headlines']) ?>;
         navigator.clipboard.writeText(headlines.join('\n')).then(() => alert('✅ Headlines másolva!'));
@@ -532,6 +711,43 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     }
     </script>
     <?php endif; ?>
+    
+    <!-- Mentés Ügyfélhez Modal - MINDIG ELÉRHETŐ -->
+    <div class="modal-overlay" id="saveToClientModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>💾 Mentés Ügyfélhez</h3>
+                <button class="modal-close" onclick="closeSaveToClientModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Válassz ügyfelet:</label>
+                    <select id="saveToClientSelect" class="form-control">
+                        <option value="">-- Válassz meglévő ügyfelet --</option>
+                        <?php
+                        if (!isset($clientManager)) {
+                            require_once __DIR__ . '/includes/ClientManager.php';
+                            $clientManager = new ClientManager();
+                        }
+                        $allClientsForModal = $clientManager->getClients();
+                        foreach ($allClientsForModal as $client):
+                        ?>
+                        <option value="<?= htmlspecialchars($client['id']) ?>"><?= htmlspecialchars($client['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="divider-text"><span>vagy</span></div>
+                <div class="form-group">
+                    <label>Új ügyfél létrehozása:</label>
+                    <input type="text" id="newClientName" class="form-control" placeholder="Cégnév...">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSaveToClientModal()">Mégse</button>
+                <button class="btn btn-primary" onclick="saveGenerationToClient()">💾 Mentés</button>
+            </div>
+        </div>
+    </div>
     
     <!-- ELŐZMÉNYEK SZEKCIÓ -->
     <?php
@@ -566,6 +782,10 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
         const item = history[idx];
         if (!item) return;
         
+        // Tároljuk el a kiválasztott history item-et globálisan a mentéshez
+        window.selectedHistoryItem = item;
+        window.selectedHistoryIndex = idx;
+        
         // Betöltjük a modal-ba vagy egyből megjelenítjük
         let html = '<div class="modal-backdrop" onclick="closeHistoryModal()"></div>';
         html += '<div class="history-modal">';
@@ -591,6 +811,7 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
         html += '</div>';
         html += '<div class="modal-footer">';
         html += '<button class="btn btn-secondary" onclick="copyHistoryHeadlines(' + idx + ')">📋 Headlines Másolása</button>';
+        html += '<button class="btn btn-success" onclick="saveHistoryToClient()">💾 Mentés Ügyfélhez</button>';
         html += '<button class="btn btn-secondary" onclick="closeHistoryModal()">Bezárás</button>';
         html += '</div>';
         html += '</div>';
@@ -609,6 +830,19 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
         if (item && item.headlines) {
             navigator.clipboard.writeText(item.headlines.join('\n')).then(() => alert('✅ Headlines másolva!'));
         }
+    }
+    
+    // Korábbi generálás mentése ügyfélhez
+    function saveHistoryToClient() {
+        if (!window.selectedHistoryItem) {
+            alert('❌ Nincs kiválasztott generálás!');
+            return;
+        }
+        // Beállítjuk a lastResultData-t a kiválasztott history item-re
+        lastResultData = window.selectedHistoryItem;
+        // Bezárjuk a history modalt és megnyitjuk a mentés modalt
+        closeHistoryModal();
+        showSaveToClientModal();
     }
     </script>
     <?php endif; ?>
@@ -988,53 +1222,525 @@ define('GOOGLE_ADS_REFRESH_TOKEN', 'xxx');</pre>
     </section>
 
 <?php elseif ($tab === 'clients'): ?>
-<!-- ==================== ÜGYFELEK TAB ==================== -->
+<!-- ==================== KLIENS PORTFÓLIÓ TAB ==================== -->
+<?php 
+$clients = $clientManager->getClients();
+$selectedClientId = $_GET['client'] ?? null;
+$selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) : null;
+?>
 
     <section class="page-section">
         <div class="section-header">
-            <h2>🏢 Ügyfeleim</h2>
+            <h2>🏢 Kliens Portfólió</h2>
             <button class="btn btn-primary" onclick="showModal('newClientModal')">+ Új Ügyfél</button>
         </div>
-        
-        <?php $clients = $clientManager->getClients(); ?>
         
         <?php if (empty($clients)): ?>
         <div class="empty-state">
             <span class="empty-icon">🏢</span>
             <h3>Még nincsenek mentett ügyfelek</h3>
-            <p>Adj hozzá ügyfeleket, hogy gyorsabban készíthess kampányokat!</p>
+            <p>Adj hozzá ügyfeleket, hogy nyomon követhesd a kampányaikat!</p>
             <button class="btn btn-primary" onclick="showModal('newClientModal')">+ Első ügyfél hozzáadása</button>
         </div>
         <?php else: ?>
-        <div class="clients-grid">
-            <?php foreach ($clients as $client): ?>
-            <div class="client-card">
-                <div class="client-header">
-                    <h3><?= htmlspecialchars($client['name']) ?></h3>
-                    <span class="client-industry"><?= $industries[$client['industry']]['icon'] ?? '🏢' ?> <?= $industries[$client['industry']]['name'] ?? $client['industry'] ?></span>
+        
+        <div class="portfolio-layout">
+            <!-- Bal: Ügyfél lista -->
+            <div class="portfolio-sidebar">
+                <div class="sidebar-header">
+                    <input type="text" id="clientSearch" class="form-control" placeholder="🔍 Ügyfél keresése..." onkeyup="filterClients()">
                 </div>
-                <div class="client-details">
-                    <p>📞 <?= htmlspecialchars($client['phone'] ?? '-') ?></p>
-                    <p>📍 <?= htmlspecialchars($client['area'] ?? '-') ?></p>
-                    <?php if (!empty($client['website'])): ?>
-                    <p>🌐 <?= htmlspecialchars($client['website']) ?></p>
+                <div class="clients-list" id="clientsList">
+                    <?php foreach ($clients as $client): 
+                        $genCount = count($client['generations'] ?? []);
+                        $lastGen = $client['last_generation'] ?? $client['updated_at'] ?? null;
+                    ?>
+                    <a href="?tab=clients&client=<?= $client['id'] ?>" 
+                       class="client-list-item <?= $selectedClientId === $client['id'] ? 'active' : '' ?>"
+                       data-name="<?= strtolower($client['name']) ?>">
+                        <div class="client-list-icon"><?= $industries[$client['industry']]['icon'] ?? '🏢' ?></div>
+                        <div class="client-list-info">
+                            <strong><?= htmlspecialchars($client['name']) ?></strong>
+                            <small><?= $industries[$client['industry']]['name'] ?? $client['industry'] ?></small>
+                        </div>
+                        <div class="client-list-meta">
+                            <?php if ($genCount > 0): ?>
+                            <span class="gen-count"><?= $genCount ?> gen</span>
+                            <?php endif; ?>
+                        </div>
+                    </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            
+            <!-- Jobb: Részletek -->
+            <div class="portfolio-main">
+                <?php if ($selectedClientData): ?>
+                <!-- Ügyfél fejléc -->
+                <div class="client-profile-header">
+                    <div class="profile-icon"><?= $industries[$selectedClientData['industry']]['icon'] ?? '🏢' ?></div>
+                    <div class="profile-info">
+                        <h2><?= htmlspecialchars($selectedClientData['name']) ?></h2>
+                        <p class="profile-industry"><?= $industries[$selectedClientData['industry']]['name'] ?? $selectedClientData['industry'] ?></p>
+                    </div>
+                    <div class="profile-actions">
+                        <a href="?tab=wizard&client=<?= $selectedClientData['id'] ?>&industry=<?= $selectedClientData['industry'] ?>" class="btn btn-primary">🚀 Új Kampány</a>
+                        <button class="btn btn-secondary" onclick="editClient('<?= $selectedClientData['id'] ?>')">✏️ Szerkesztés</button>
+                        <button class="btn btn-danger" onclick="deleteClient('<?= $selectedClientData['id'] ?>')">🗑️</button>
+                    </div>
+                </div>
+                
+                <!-- Ügyfél adatok kártyák -->
+                <div class="client-stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📞</div>
+                        <div class="stat-info">
+                            <span class="stat-label">Telefon</span>
+                            <span class="stat-value"><?= htmlspecialchars($selectedClientData['phone'] ?? '-') ?></span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📍</div>
+                        <div class="stat-info">
+                            <span class="stat-label">Terület</span>
+                            <span class="stat-value"><?= ucfirst($selectedClientData['area'] ?? '-') ?></span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🌐</div>
+                        <div class="stat-info">
+                            <span class="stat-label">Weboldal</span>
+                            <span class="stat-value"><?= htmlspecialchars($selectedClientData['website'] ?? '-') ?></span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-info">
+                            <span class="stat-label">Generálások</span>
+                            <span class="stat-value"><?= count($selectedClientData['generations'] ?? []) ?> db</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tab navigation -->
+                <div class="client-tabs">
+                    <button class="client-tab active" onclick="showClientSection('generations')">📝 Generálások</button>
+                    <button class="client-tab" onclick="showClientSection('audits')">🔍 Landing Auditok</button>
+                    <button class="client-tab" onclick="showClientSection('history')">📜 Változáskövetés</button>
+                </div>
+                
+                <!-- Generálások -->
+                <div class="client-section active" id="section-generations">
+                    <?php 
+                    $generations = $selectedClientData['generations'] ?? [];
+                    if (empty($generations)): 
+                    ?>
+                    <div class="empty-state small">
+                        <p>Még nincs generált tartalom ehhez az ügyfélhez.</p>
+                        <a href="?tab=wizard&client=<?= $selectedClientData['id'] ?>&industry=<?= $selectedClientData['industry'] ?>" class="btn btn-primary">🚀 Első kampány generálása</a>
+                    </div>
+                    <?php else: ?>
+                    <div class="generations-timeline">
+                        <?php foreach ($generations as $index => $gen): ?>
+                        <div class="generation-card" data-gen-id="<?= $gen['id'] ?>">
+                            <div class="gen-header">
+                                <div class="gen-date">
+                                    <strong><?= date('Y.m.d H:i', strtotime($gen['created_at'])) ?></strong>
+                                    <?php if ($index === 0): ?><span class="badge badge-green">Legutóbbi</span><?php endif; ?>
+                                </div>
+                                <div class="gen-meta">
+                                    <span class="badge"><?= count($gen['headlines'] ?? []) ?> headline</span>
+                                    <span class="badge"><?= count($gen['descriptions'] ?? []) ?> desc</span>
+                                    <?php if (isset($gen['qs_score'])): ?>
+                                    <span class="badge badge-<?= $gen['qs_score'] >= 7 ? 'green' : ($gen['qs_score'] >= 4 ? 'orange' : 'red') ?>">QS: <?= $gen['qs_score'] ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            
+                            <div class="gen-settings">
+                                <?php $settings = $gen['settings'] ?? []; ?>
+                                <span class="setting-tag"><?= ($settings['formality'] ?? 'informal') === 'formal' ? '🎩 Magázás' : '👋 Tegezés' ?></span>
+                                <span class="setting-tag"><?= ($settings['voice'] ?? 'team') === 'solo' ? '👤 Egyéni' : '👥 Csapat' ?></span>
+                                <span class="setting-tag"><?= match($settings['tone'] ?? 'urgent') { 'urgent' => '🚨 Sürgető', 'trust' => '🏆 Bizalom', 'value' => '💰 Ár-fókusz', default => '🚨 Sürgető' } ?></span>
+                            </div>
+                            
+                            <div class="gen-preview">
+                                <div class="preview-section">
+                                    <h5>Headlines</h5>
+                                    <div class="preview-tags">
+                                        <?php foreach (array_slice($gen['headlines'] ?? [], 0, 5) as $h): ?>
+                                        <span class="tag"><?= htmlspecialchars(is_array($h) ? $h['text'] : $h) ?></span>
+                                        <?php endforeach; ?>
+                                        <?php if (count($gen['headlines'] ?? []) > 5): ?>
+                                        <span class="tag tag-more">+<?= count($gen['headlines']) - 5 ?> több</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="gen-actions">
+                                <button class="btn btn-sm btn-secondary" onclick="viewGeneration('<?= $gen['id'] ?>')">👁️ Részletek</button>
+                                <button class="btn btn-sm btn-secondary" onclick="copyGeneration('<?= $gen['id'] ?>')">📋 Másolás</button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteGeneration('<?= $selectedClientId ?>', '<?= $gen['id'] ?>')">🗑️ Törlés</button>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
                     <?php endif; ?>
                 </div>
-                <div class="client-actions">
-                    <a href="?tab=wizard&client=<?= $client['id'] ?>&industry=<?= $client['industry'] ?>" class="btn btn-sm btn-primary">🚀 Kampány</a>
-                    <button class="btn btn-sm btn-secondary" onclick="editClient('<?= $client['id'] ?>')">✏️</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteClient('<?= $client['id'] ?>')">🗑️</button>
+                
+                <!-- Landing Auditok -->
+                <div class="client-section" id="section-audits">
+                    <?php 
+                    $audits = $selectedClientData['audits'] ?? [];
+                    if (empty($audits)): 
+                    ?>
+                    <div class="empty-state small">
+                        <p>Még nincs landing page audit ehhez az ügyfélhez.</p>
+                        <a href="?tab=landing" class="btn btn-secondary">🔍 Landing Audit indítása</a>
+                    </div>
+                    <?php else: ?>
+                    <div class="audits-list">
+                        <?php foreach ($audits as $audit): ?>
+                        <div class="audit-card">
+                            <div class="audit-url"><?= htmlspecialchars($audit['url'] ?? '') ?></div>
+                            <div class="audit-date"><?= date('Y.m.d', strtotime($audit['created_at'] ?? 'now')) ?></div>
+                            <div class="audit-score">
+                                <span class="score-value"><?= $audit['score'] ?? '-' ?></span>/100
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
-                <?php if (!empty($client['campaigns'])): ?>
-                <div class="client-campaigns">
-                    <small><?= count($client['campaigns']) ?> korábbi kampány</small>
+                
+                <!-- Változáskövetés -->
+                <div class="client-section" id="section-history">
+                    <?php if (count($generations) < 2): ?>
+                    <div class="empty-state small">
+                        <p>Legalább 2 generálás szükséges a változások összehasonlításához.</p>
+                    </div>
+                    <?php else: ?>
+                    <div class="change-tracker">
+                        <h4>📜 Verzió Történet</h4>
+                        <p class="help-text">Kövesd nyomon a hirdetések változásait és azok hatását</p>
+                        
+                        <div class="version-timeline">
+                            <?php 
+                            $prevGen = null;
+                            foreach ($generations as $index => $gen): 
+                                $changes = [];
+                                if ($prevGen) {
+                                    // Headline változások
+                                    $oldHeadlines = array_map(fn($h) => is_array($h) ? $h['text'] : $h, $prevGen['headlines'] ?? []);
+                                    $newHeadlines = array_map(fn($h) => is_array($h) ? $h['text'] : $h, $gen['headlines'] ?? []);
+                                    $addedH = array_diff($newHeadlines, $oldHeadlines);
+                                    $removedH = array_diff($oldHeadlines, $newHeadlines);
+                                    if (!empty($addedH)) $changes[] = '+' . count($addedH) . ' új headline';
+                                    if (!empty($removedH)) $changes[] = '-' . count($removedH) . ' headline törölve';
+                                    
+                                    // QS változás
+                                    $oldQs = $prevGen['qs_score'] ?? 0;
+                                    $newQs = $gen['qs_score'] ?? 0;
+                                    if ($newQs != $oldQs) {
+                                        $diff = $newQs - $oldQs;
+                                        $changes[] = 'QS: ' . ($diff > 0 ? '+' : '') . $diff;
+                                    }
+                                }
+                            ?>
+                            <div class="version-item <?= $index === 0 ? 'current' : '' ?>">
+                                <div class="version-marker">
+                                    <span class="version-dot"></span>
+                                    <?php if ($index < count($generations) - 1): ?><span class="version-line"></span><?php endif; ?>
+                                </div>
+                                <div class="version-content">
+                                    <div class="version-header">
+                                        <strong>v<?= count($generations) - $index ?></strong>
+                                        <span class="version-date"><?= date('Y.m.d H:i', strtotime($gen['created_at'])) ?></span>
+                                        <?php if ($index === 0): ?><span class="badge badge-green">Aktuális</span><?php endif; ?>
+                                    </div>
+                                    <?php if (!empty($changes)): ?>
+                                    <div class="version-changes">
+                                        <?php foreach ($changes as $change): ?>
+                                        <span class="change-tag <?= strpos($change, '+') === 0 ? 'added' : (strpos($change, '-') === 0 ? 'removed' : 'modified') ?>"><?= $change ?></span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <?php elseif ($index === count($generations) - 1): ?>
+                                    <div class="version-changes">
+                                        <span class="change-tag">Első verzió</span>
+                                    </div>
+                                    <?php endif; ?>
+                                    <div class="version-summary">
+                                        <?= count($gen['headlines'] ?? []) ?> headline, 
+                                        <?= count($gen['descriptions'] ?? []) ?> description
+                                        <?php if (isset($gen['qs_score'])): ?>, QS: <?= $gen['qs_score'] ?><?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php 
+                                $prevGen = $gen;
+                            endforeach; 
+                            ?>
+                        </div>
+                        
+                        <!-- Összehasonlító -->
+                        <div class="version-compare-tool">
+                            <h5>🔄 Verziók Összehasonlítása</h5>
+                            <div class="compare-selectors">
+                                <select id="compareFrom" class="form-control">
+                                    <?php foreach ($generations as $i => $g): ?>
+                                    <option value="<?= $i ?>" <?= $i === 1 ? 'selected' : '' ?>>v<?= count($generations) - $i ?> - <?= date('m.d H:i', strtotime($g['created_at'])) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <span>→</span>
+                                <select id="compareTo" class="form-control">
+                                    <?php foreach ($generations as $i => $g): ?>
+                                    <option value="<?= $i ?>" <?= $i === 0 ? 'selected' : '' ?>>v<?= count($generations) - $i ?> - <?= date('m.d H:i', strtotime($g['created_at'])) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button class="btn btn-primary" onclick="compareVersions()">Összehasonlítás</button>
+                            </div>
+                            <div id="compareResults"></div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                
+                <?php else: ?>
+                <!-- Nincs kiválasztott ügyfél -->
+                <div class="no-client-selected">
+                    <div class="empty-state">
+                        <span class="empty-icon">👈</span>
+                        <h3>Válassz egy ügyfelet</h3>
+                        <p>A bal oldali listából válaszd ki az ügyfelet a részletek megtekintéséhez.</p>
+                    </div>
                 </div>
                 <?php endif; ?>
             </div>
-            <?php endforeach; ?>
         </div>
         <?php endif; ?>
     </section>
+    
+    <!-- Generálás részletek modal -->
+    <div class="modal" id="generationModal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3>📝 Generálás Részletei</h3>
+                <button class="modal-close" onclick="hideModal('generationModal')">&times;</button>
+            </div>
+            <div class="modal-body" id="generationModalContent">
+                <!-- JS-sel töltjük -->
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    // Ügyfél keresés
+    function filterClients() {
+        const search = document.getElementById('clientSearch').value.toLowerCase();
+        document.querySelectorAll('.client-list-item').forEach(item => {
+            const name = item.dataset.name;
+            item.style.display = name.includes(search) ? 'flex' : 'none';
+        });
+    }
+    
+    // Section váltás
+    function showClientSection(section) {
+        document.querySelectorAll('.client-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.client-section').forEach(s => s.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('section-' + section).classList.add('active');
+    }
+    
+    // Generálás megtekintése
+    function viewGeneration(genId) {
+        const clientId = '<?= $selectedClientId ?>';
+        
+        // Generálás keresése a lokális adatokban
+        const gen = generations.find(g => g.id === genId);
+        
+        if (!gen) {
+            // AJAX fallback
+            fetch(`api.php?action=get_client_generation&client_id=${clientId}&generation_id=${genId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.generation) {
+                        renderGenerationModal(data.generation);
+                    } else {
+                        alert('❌ Generálás nem található');
+                    }
+                });
+            return;
+        }
+        
+        renderGenerationModal(gen);
+    }
+    
+    function renderGenerationModal(gen) {
+        showModal('generationModal');
+        
+        const headlines = (gen.headlines || []).map(h => typeof h === 'object' ? h.text : h);
+        const descriptions = (gen.descriptions || []).map(d => typeof d === 'object' ? d.text : d);
+        
+        let html = `
+            <div class="gen-modal-meta">
+                <span>📅 ${gen.created_at || 'N/A'}</span>
+                <span>🏭 ${gen.industry || 'N/A'}</span>
+                ${gen.qs_score ? `<span>⭐ QS: ${gen.qs_score}</span>` : ''}
+            </div>
+            
+            <div class="gen-modal-section">
+                <h4>📝 Headlines (${headlines.length})</h4>
+                <div class="copy-list compact">
+                    ${headlines.map(h => `<div class="copy-item"><span>${h}</span><small>${h.length}/30</small></div>`).join('')}
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="copyToClipboard('${headlines.join('\\n')}')">📋 Összes Másolása</button>
+            </div>
+        `;
+        
+        if (descriptions.length > 0) {
+            html += `
+                <div class="gen-modal-section">
+                    <h4>📝 Descriptions (${descriptions.length})</h4>
+                    <div class="copy-list compact">
+                        ${descriptions.map(d => `<div class="copy-item"><span>${d}</span><small>${d.length}/90</small></div>`).join('')}
+                    </div>
+                    <button class="btn btn-sm btn-secondary" onclick="copyToClipboard('${descriptions.join('\\n')}')">📋 Összes Másolása</button>
+                </div>
+            `;
+        }
+        
+        if (gen.callonly && gen.callonly.length > 0) {
+            html += `
+                <div class="gen-modal-section">
+                    <h4>📞 Call-Only (${gen.callonly.length})</h4>
+                    ${gen.callonly.map(c => `
+                        <div class="callonly-box compact">
+                            <div class="co-name">${c.business || ''}</div>
+                            <div class="co-desc">${c.desc1 || ''}</div>
+                            <div class="co-desc">${c.desc2 || ''}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        if (gen.keywords && gen.keywords.length > 0) {
+            const keywords = gen.keywords.map(k => typeof k === 'object' ? k.keyword : k);
+            html += `
+                <div class="gen-modal-section">
+                    <h4>🔤 Kulcsszavak (${keywords.length})</h4>
+                    <div class="tags-list">
+                        ${keywords.map(k => `<span class="tag">${k}</span>`).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        if (gen.settings) {
+            html += `
+                <div class="gen-modal-section">
+                    <h4>⚙️ Beállítások</h4>
+                    <div class="settings-tags">
+                        ${gen.settings.formality === 'formal' ? '<span class="tag">🎩 Magázó</span>' : '<span class="tag">👋 Tegező</span>'}
+                        ${gen.settings.voice === 'team' ? '<span class="tag">👥 Csapat</span>' : '<span class="tag">👤 Egyéni</span>'}
+                        ${gen.settings.tone ? `<span class="tag">${gen.settings.tone === 'urgent' ? '🚨 Sürgető' : gen.settings.tone === 'trust' ? '🏆 Bizalom' : '💰 Ár-fókusz'}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        document.getElementById('generationModalContent').innerHTML = html;
+    }
+    
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text.replace(/\\n/g, '\\n')).then(() => alert('✅ Másolva!'));
+    }
+    
+    // Generálás másolása
+    function copyGeneration(genId) {
+        const gen = generations.find(g => g.id === genId);
+        if (!gen) {
+            alert('❌ Generálás nem található!');
+            return;
+        }
+        const headlines = (gen.headlines || []).map(h => typeof h === 'object' ? h.text : h);
+        const descriptions = (gen.descriptions || []).map(d => typeof d === 'object' ? d.text : d);
+        const text = 'HEADLINES:\n' + headlines.join('\n') + '\n\nDESCRIPTIONS:\n' + descriptions.join('\n');
+        navigator.clipboard.writeText(text).then(() => alert('✅ Generálás másolva a vágólapra!'));
+    }
+    
+    // Generálás törlése
+    async function deleteGeneration(clientId, genId) {
+        if (!confirm('Biztosan törlöd ezt a generálást?')) return;
+        
+        try {
+            const form = new FormData();
+            form.append('action', 'delete_generation');
+            form.append('client_id', clientId);
+            form.append('generation_id', genId);
+            form.append('csrf_token', window.csrfToken || '');
+            
+            const resp = await fetch('api.php', { method: 'POST', body: form });
+            const data = await resp.json();
+            
+            if (data.success) {
+                // Töröljük a DOM-ból is
+                document.querySelector(`[data-gen-id="${genId}"]`)?.remove();
+                alert('✅ Generálás törölve!');
+            } else {
+                alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+            }
+        } catch (e) {
+            alert('❌ Hálózati hiba: ' + e.message);
+        }
+    }
+    
+    // Verziók összehasonlítása
+    const generations = <?= json_encode($selectedClientData['generations'] ?? []) ?>;
+    
+    function compareVersions() {
+        const fromIdx = parseInt(document.getElementById('compareFrom').value);
+        const toIdx = parseInt(document.getElementById('compareTo').value);
+        
+        if (fromIdx === toIdx) {
+            alert('Válassz különböző verziókat!');
+            return;
+        }
+        
+        const fromGen = generations[fromIdx];
+        const toGen = generations[toIdx];
+        
+        const fromHeadlines = (fromGen.headlines || []).map(h => typeof h === 'object' ? h.text : h);
+        const toHeadlines = (toGen.headlines || []).map(h => typeof h === 'object' ? h.text : h);
+        
+        const added = toHeadlines.filter(h => !fromHeadlines.includes(h));
+        const removed = fromHeadlines.filter(h => !toHeadlines.includes(h));
+        const unchanged = toHeadlines.filter(h => fromHeadlines.includes(h));
+        
+        let html = '<div class="compare-results">';
+        html += `<div class="compare-summary">
+            <span class="badge badge-green">+${added.length} új</span>
+            <span class="badge badge-red">-${removed.length} törölve</span>
+            <span class="badge">${unchanged.length} változatlan</span>
+        </div>`;
+        
+        if (added.length > 0) {
+            html += '<div class="compare-section added"><h5>✅ Új Headlines</h5>';
+            added.forEach(h => html += `<div class="compare-item">${h}</div>`);
+            html += '</div>';
+        }
+        
+        if (removed.length > 0) {
+            html += '<div class="compare-section removed"><h5>❌ Törölt Headlines</h5>';
+            removed.forEach(h => html += `<div class="compare-item">${h}</div>`);
+            html += '</div>';
+        }
+        
+        html += '</div>';
+        document.getElementById('compareResults').innerHTML = html;
+    }
+    </script>
 
     <!-- Új ügyfél modal -->
     <div id="newClientModal" class="modal hidden">
@@ -1597,9 +2303,9 @@ Hirdetés 2:
             <p class="help-text">Az AI <strong>látja</strong> az oldaladat és UX/UI szempontból elemzi - észreveszi amit a kód nem tud!</p>
             
             <?php if (!$visionConfigured): ?>
-            <div class="alert alert-warning">
-                ⚠️ Screenshot API nincs konfigurálva. Add meg a <code>SCREENSHOT_API_KEY</code>-t a config.php-ban.
-                <br><small>Ajánlott: <a href="https://screenshotmachine.com" target="_blank">screenshotmachine.com</a> (ingyenes szint elérhető)</small>
+            <div class="alert alert-info">
+                ℹ️ Screenshot API nincs konfigurálva - az elemzés az oldal tartalmából dolgozik.
+                <br><small>Opcionális: <a href="https://screenshotmachine.com" target="_blank">screenshotmachine.com</a> - vizuális screenshot elemzéshez</small>
             </div>
             <?php endif; ?>
             
@@ -1628,15 +2334,15 @@ Hirdetés 2:
                 </div>
                 
                 <div class="vision-features">
-                    <span class="feature-tag">👁️ Látja a designt</span>
-                    <span class="feature-tag">🎯 CTA pozíció elemzés</span>
+                    <span class="feature-tag">🔍 Tartalom elemzés</span>
+                    <span class="feature-tag">🎯 CTA audit</span>
                     <span class="feature-tag">📱 Mobil becslés</span>
-                    <span class="feature-tag">🎨 Szín kontraszt</span>
-                    <span class="feature-tag">📍 Figyelem flow</span>
+                    <span class="feature-tag">📞 Kontakt check</span>
+                    <span class="feature-tag">🏆 Trust jelek</span>
                 </div>
                 
-                <button type="submit" class="btn btn-premium btn-lg" id="visionBtn" <?= !$visionConfigured ? 'disabled' : '' ?>>
-                    👁️ AI Vision Elemzés
+                <button type="submit" class="btn btn-premium btn-lg" id="visionBtn">
+                    🔍 AI UX Elemzés
                 </button>
             </form>
             
@@ -1885,6 +2591,241 @@ Hirdetés 2:
         </div>
     </div>
 
+<?php elseif ($tab === 'gads'): ?>
+<!-- ==================== GOOGLE ADS FIÓKOK TAB ==================== -->
+<?php
+require_once __DIR__ . '/includes/GoogleAdsManager.php';
+$gadsManager = new GoogleAdsManager();
+$gadsConfigured = $gadsManager->isConfigured();
+
+// Cached fiókok betöltése
+$cachedAccounts = [];
+$cachedSync = null;
+$cacheFile = __DIR__ . '/data/gads_accounts_cache.json';
+if (file_exists($cacheFile)) {
+    $cache = json_decode(file_get_contents($cacheFile), true);
+    $cachedAccounts = $cache['accounts'] ?? [];
+    $cachedSync = $cache['synced_at'] ?? null;
+}
+?>
+
+    <section class="page-section">
+        <div class="section-header">
+            <h2>📊 Google Ads Fiókok</h2>
+            <p class="section-subtitle">Húzd be a kampányaidat, hirdetéseidet és kulcsszavaidat a Google Ads-ból</p>
+        </div>
+        
+        <?php if (!$gadsConfigured): ?>
+        <div class="card card-warning">
+            <h3 class="card-title">⚠️ Google Ads API Konfiguráció Szükséges</h3>
+            <p>A Google Ads integráció használatához állítsd be az alábbi értékeket a <code>config.php</code> fájlban:</p>
+            <div class="code-block">
+define('GOOGLE_ADS_DEVELOPER_TOKEN', 'xxx');
+define('GOOGLE_ADS_CLIENT_ID', 'xxx.apps.googleusercontent.com');
+define('GOOGLE_ADS_CLIENT_SECRET', 'xxx');
+define('GOOGLE_ADS_REFRESH_TOKEN', 'xxx');
+define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
+            </div>
+            <p style="margin-top:16px;">
+                <a href="https://developers.google.com/google-ads/api/docs/first-call/overview" target="_blank" class="btn btn-secondary">📖 Google Ads API Dokumentáció</a>
+            </p>
+        </div>
+        <?php else: ?>
+        
+        <div class="gads-dashboard">
+            <!-- Fiókok Panel -->
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">🏢 Elérhető Fiókok</h3>
+                    <button class="btn btn-primary" id="syncAccountsBtn" onclick="syncGadsAccounts()">
+                        🔄 Fiókok Szinkronizálása
+                    </button>
+                </div>
+                
+                <?php if ($cachedSync): ?>
+                <p class="sync-info">Utolsó szinkronizálás: <?= $cachedSync ?></p>
+                <?php endif; ?>
+                
+                <div id="accountsList">
+                    <?php if (empty($cachedAccounts)): ?>
+                    <p class="help-text">Kattints a "Fiókok Szinkronizálása" gombra a fiókok betöltéséhez.</p>
+                    <?php else: ?>
+                    <div class="accounts-grid">
+                        <?php foreach ($cachedAccounts as $acc): ?>
+                        <div class="account-card" data-customer-id="<?= $acc['id'] ?>">
+                            <div class="account-info">
+                                <h4><?= htmlspecialchars($acc['name']) ?></h4>
+                                <span class="account-id"><?= $acc['id'] ?></span>
+                                <span class="account-currency"><?= $acc['currency'] ?? 'HUF' ?></span>
+                            </div>
+                            <div class="account-actions">
+                                <button class="btn btn-sm btn-secondary" onclick="syncFullAccount('<?= $acc['id'] ?>')">
+                                    📥 Teljes Sync
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="viewAccountDetails('<?= $acc['id'] ?>')">
+                                    👁️ Részletek
+                                </button>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <!-- Sync Eredmények -->
+            <div class="card" id="syncResultsCard" style="display:none;">
+                <div class="card-header">
+                    <h3 class="card-title">📋 Szinkronizált Adatok</h3>
+                    <div class="sync-stats" id="syncStats"></div>
+                </div>
+                <div id="syncResults"></div>
+            </div>
+            
+            <!-- Kampányok -->
+            <div class="card" id="campaignsCard" style="display:none;">
+                <h3 class="card-title">📁 Kampányok</h3>
+                <div id="campaignsList"></div>
+            </div>
+            
+            <!-- Hirdetések -->
+            <div class="card" id="adsCard" style="display:none;">
+                <h3 class="card-title">📝 Hirdetések</h3>
+                <div id="adsList"></div>
+            </div>
+            
+            <!-- Kulcsszavak -->
+            <div class="card" id="keywordsCard" style="display:none;">
+                <h3 class="card-title">🔤 Kulcsszavak</h3>
+                <div id="keywordsList"></div>
+            </div>
+        </div>
+        
+        <?php endif; ?>
+    </section>
+    
+    <script>
+    async function syncGadsAccounts() {
+        const btn = document.getElementById('syncAccountsBtn');
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Szinkronizálás...';
+        
+        try {
+            const resp = await fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=gads_sync_accounts&csrf_token=<?= Security::generateCsrfToken() ?>'
+            });
+            const data = await resp.json();
+            
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Hiba: ' + (data.error || 'Ismeretlen hiba'));
+            }
+        } catch (err) {
+            alert('Hálózati hiba: ' + err.message);
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '🔄 Fiókok Szinkronizálása';
+    }
+    
+    async function syncFullAccount(customerId) {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.innerHTML = '⏳...';
+        
+        try {
+            const resp = await fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `action=gads_sync_full&customer_id=${customerId}&with_metrics=1&csrf_token=<?= Security::generateCsrfToken() ?>`
+            });
+            const data = await resp.json();
+            
+            if (data.success) {
+                showSyncResults(data);
+            } else {
+                alert('Hiba: ' + (data.error || 'Ismeretlen hiba'));
+            }
+        } catch (err) {
+            alert('Hálózati hiba: ' + err.message);
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '📥 Teljes Sync';
+    }
+    
+    function showSyncResults(data) {
+        document.getElementById('syncResultsCard').style.display = 'block';
+        document.getElementById('campaignsCard').style.display = 'block';
+        document.getElementById('adsCard').style.display = 'block';
+        document.getElementById('keywordsCard').style.display = 'block';
+        
+        // Stats
+        document.getElementById('syncStats').innerHTML = `
+            <span class="stat-badge">📁 ${data.summary.campaigns} kampány</span>
+            <span class="stat-badge">📂 ${data.summary.ad_groups} ad group</span>
+            <span class="stat-badge">📝 ${data.summary.ads} hirdetés</span>
+            <span class="stat-badge">🔤 ${data.summary.keywords} kulcsszó</span>
+        `;
+        
+        // Kampányok
+        let campaignsHtml = '<div class="data-table"><table><thead><tr><th>Kampány</th><th>Típus</th><th>Státusz</th><th>Napi Büdzsé</th><th>Kattintás</th><th>Költés</th></tr></thead><tbody>';
+        (data.data.campaigns || []).forEach(c => {
+            const m = c.metrics || {};
+            campaignsHtml += `<tr>
+                <td><strong>${c.name}</strong></td>
+                <td><span class="badge">${c.type}</span></td>
+                <td><span class="status-${c.status.toLowerCase()}">${c.status}</span></td>
+                <td>${c.daily_budget.toLocaleString()} Ft</td>
+                <td>${(m.clicks || 0).toLocaleString()}</td>
+                <td>${(m.cost || 0).toLocaleString()} Ft</td>
+            </tr>`;
+        });
+        campaignsHtml += '</tbody></table></div>';
+        document.getElementById('campaignsList').innerHTML = campaignsHtml;
+        
+        // Hirdetések
+        let adsHtml = '<div class="ads-list">';
+        (data.data.ads || []).slice(0, 20).forEach(ad => {
+            const headlines = (ad.headlines || []).slice(0, 5).join(' | ');
+            adsHtml += `<div class="ad-preview">
+                <div class="ad-meta">${ad.campaign_name} > ${ad.ad_group_name}</div>
+                <div class="ad-type"><span class="badge badge-${ad.type === 'RESPONSIVE_SEARCH_AD' ? 'blue' : 'gray'}">${ad.type}</span></div>
+                <div class="ad-headlines">${headlines}</div>
+                <div class="ad-url">${(ad.final_urls || [])[0] || ''}</div>
+            </div>`;
+        });
+        adsHtml += '</div>';
+        document.getElementById('adsList').innerHTML = adsHtml;
+        
+        // Kulcsszavak
+        let kwHtml = '<div class="data-table"><table><thead><tr><th>Kulcsszó</th><th>Match</th><th>QS</th><th>Katt.</th><th>CTR</th><th>CPC</th></tr></thead><tbody>';
+        (data.data.keywords || []).slice(0, 50).forEach(kw => {
+            const m = kw.metrics || {};
+            kwHtml += `<tr>
+                <td>${kw.text}</td>
+                <td><span class="badge badge-sm">${kw.match_type}</span></td>
+                <td>${kw.quality_score || '-'}</td>
+                <td>${(m.clicks || 0).toLocaleString()}</td>
+                <td>${m.ctr || 0}%</td>
+                <td>${(m.avg_cpc || 0).toLocaleString()} Ft</td>
+            </tr>`;
+        });
+        kwHtml += '</tbody></table></div>';
+        document.getElementById('keywordsList').innerHTML = kwHtml;
+        
+        // Scroll to results
+        document.getElementById('syncResultsCard').scrollIntoView({behavior: 'smooth'});
+    }
+    
+    function viewAccountDetails(customerId) {
+        syncFullAccount(customerId);
+    }
+    </script>
+
 <?php elseif ($tab === 'strategies'): ?>
 <!-- ==================== STRATÉGIÁK TAB ==================== -->
 
@@ -1949,23 +2890,141 @@ Hirdetés 2:
     </footer>
 
     <script>
+    // Globális CSRF token
+    window.csrfToken = '<?= Security::generateCsrfToken() ?>';
+    
+    // Globális lastResultData - MINDIG betöltjük ha van
+    <?php
+    $lastResultFile = __DIR__ . '/data/last_result.json';
+    $globalLastResult = file_exists($lastResultFile) ? json_decode(file_get_contents($lastResultFile), true) : null;
+    ?>
+    var lastResultData = <?= $globalLastResult ? json_encode($globalLastResult) : 'null' ?>;
+    
     // Modal kezelés
     function showModal(id) {
-        document.getElementById(id).classList.remove('hidden');
+        document.getElementById(id).classList.add('show');
     }
     function hideModal(id) {
-        document.getElementById(id).classList.add('hidden');
+        document.getElementById(id).classList.remove('show');
+    }
+    
+    // Mentés ügyfélhez modal
+    function showSaveToClientModal() {
+        if (!lastResultData) {
+            alert('❌ Nincs elérhető generálás! Először generálj egy kampányt a Kampány fülön.');
+            return;
+        }
+        document.getElementById('saveToClientModal').style.display = 'flex';
+    }
+    function closeSaveToClientModal() {
+        document.getElementById('saveToClientModal').style.display = 'none';
+    }
+    
+    // Mentés ügyfélhez - az adatokat a PHP-ból vesszük
+    async function saveGenerationToClient() {
+        console.log('saveGenerationToClient called');
+        
+        const selectEl = document.getElementById('saveToClientSelect');
+        const newNameEl = document.getElementById('newClientName');
+        
+        const clientId = selectEl ? selectEl.value : '';
+        const newClientName = newNameEl ? newNameEl.value.trim() : '';
+        
+        console.log('clientId:', clientId, 'newClientName:', newClientName);
+        
+        if (!clientId && !newClientName) {
+            alert('❌ Válassz ügyfelet vagy adj meg új nevet!');
+            return;
+        }
+        
+        // lastResultData-t a PHP-ból kell kapni - ellenőrizzük
+        console.log('lastResultData:', typeof lastResultData, lastResultData);
+        
+        if (typeof lastResultData === 'undefined' || !lastResultData) {
+            alert('❌ Nincs elérhető generálás adat! Először generálj egy kampányt.');
+            return;
+        }
+        
+        let targetClientId = clientId;
+        
+        // Ha új ügyfelet kell létrehozni
+        if (!clientId && newClientName) {
+            console.log('Creating new client...');
+            const createForm = new FormData();
+            createForm.append('action', 'save_client');
+            createForm.append('name', newClientName);
+            createForm.append('industry', lastResultData.industry || '');
+            createForm.append('csrf_token', window.csrfToken || '');
+            
+            try {
+                const resp = await fetch('api.php', { method: 'POST', body: createForm });
+                const text = await resp.text();
+                console.log('Create client response:', text);
+                const data = JSON.parse(text);
+                if (data.success && data.client_id) {
+                    targetClientId = data.client_id;
+                } else {
+                    alert('❌ Hiba az ügyfél létrehozásakor: ' + (data.error || JSON.stringify(data)));
+                    return;
+                }
+            } catch (e) {
+                console.error('Error creating client:', e);
+                alert('❌ Hálózati hiba: ' + e.message);
+                return;
+            }
+        }
+        
+        // Generálás mentése az ügyfélhez
+        console.log('Saving generation to client:', targetClientId);
+        const saveForm = new FormData();
+        saveForm.append('action', 'save_generation_to_client');
+        saveForm.append('client_id', targetClientId);
+        saveForm.append('generation', JSON.stringify(lastResultData));
+        saveForm.append('csrf_token', window.csrfToken || '');
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: saveForm });
+            const text = await resp.text();
+            console.log('Save generation response:', text);
+            const data = JSON.parse(text);
+            if (data.success) {
+                alert('✅ Kampány mentve az ügyfélhez!');
+                closeSaveToClientModal();
+            } else {
+                alert('❌ Hiba: ' + (data.error || JSON.stringify(data)));
+            }
+        } catch (e) {
+            console.error('Error saving generation:', e);
+            alert('❌ Hálózati hiba: ' + e.message);
+        }
     }
     
     // Ügyfél betöltése
-    function loadClientData(jsonData) {
-        if (!jsonData) return;
-        const client = JSON.parse(jsonData);
+    function loadClientData(selectEl) {
+        const option = selectEl.options[selectEl.selectedIndex];
+        if (!option || !option.dataset.json) {
+            // Ürítsd ki a mezőket ha nincs kiválasztva
+            document.getElementById('company_name').value = '';
+            document.getElementById('phone').value = '';
+            document.getElementById('area').value = 'budapest';
+            document.getElementById('website').value = '';
+            return;
+        }
+        const client = JSON.parse(option.dataset.json);
         document.getElementById('company_name').value = client.name || '';
         document.getElementById('phone').value = client.phone || '';
         document.getElementById('area').value = client.area || 'budapest';
         document.getElementById('website').value = client.website || '';
     }
+    
+    // Tone selector
+    function selectTone(el) {
+        document.querySelectorAll('.tone-option').forEach(t => t.classList.remove('selected'));
+        el.classList.add('selected');
+        el.querySelector('input').checked = true;
+    }
+    // Initial selection
+    document.querySelector('.tone-option input:checked')?.closest('.tone-option')?.classList.add('selected');
     
     // Ügyfél törlése
     function deleteClient(id) {
@@ -2789,6 +3848,520 @@ Hirdetés 2:
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+        }
+    });
+    
+    // ========================================
+    // RSA PREVIEW - ÉLŐ ELŐNÉZET
+    // ========================================
+    class RSAPreview {
+        constructor(containerId) {
+            this.container = document.getElementById(containerId);
+            this.headlines = [];
+            this.descriptions = [];
+            this.url = '';
+            this.path1 = '';
+            this.path2 = '';
+            this.isPlaying = false;
+            this.interval = null;
+        }
+        
+        setData(headlines, descriptions, url, path1 = '', path2 = '') {
+            this.headlines = headlines || [];
+            this.descriptions = descriptions || [];
+            this.url = url || 'example.com';
+            this.path1 = path1;
+            this.path2 = path2;
+            this.render();
+        }
+        
+        getRandomHeadlines(count = 3) {
+            const shuffled = [...this.headlines].sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, Math.min(count, this.headlines.length));
+        }
+        
+        getRandomDescriptions(count = 2) {
+            const shuffled = [...this.descriptions].sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, Math.min(count, this.descriptions.length));
+        }
+        
+        render(view = 'desktop') {
+            if (!this.container) return;
+            
+            const hs = this.getRandomHeadlines(3);
+            const ds = this.getRandomDescriptions(2);
+            const displayUrl = this.url.replace(/^https?:\/\//, '').split('/')[0];
+            const path = [this.path1, this.path2].filter(p => p).join('/');
+            
+            const isMobile = view === 'mobile';
+            
+            this.container.innerHTML = `
+                <div class="rsa-preview ${isMobile ? 'rsa-mobile' : 'rsa-desktop'}">
+                    <div class="rsa-header">
+                        <div class="rsa-view-toggle">
+                            <button class="view-btn ${!isMobile ? 'active' : ''}" onclick="rsaPreview.render('desktop')">🖥️</button>
+                            <button class="view-btn ${isMobile ? 'active' : ''}" onclick="rsaPreview.render('mobile')">📱</button>
+                        </div>
+                        <button class="shuffle-btn" onclick="rsaPreview.shuffle()">🔀 Pörgetés</button>
+                        <button class="play-btn" onclick="rsaPreview.toggleAutoPlay()">${this.isPlaying ? '⏸️ Stop' : '▶️ Auto'}</button>
+                    </div>
+                    <div class="rsa-ad">
+                        <div class="rsa-sponsored">Hirdetés</div>
+                        <div class="rsa-url">
+                            <span class="rsa-domain">${this.escapeHtml(displayUrl)}</span>
+                            ${path ? `<span class="rsa-path">/${this.escapeHtml(path)}</span>` : ''}
+                        </div>
+                        <div class="rsa-title">${hs.map(h => this.escapeHtml(h)).join(' | ')}</div>
+                        <div class="rsa-desc">${ds.map(d => this.escapeHtml(d)).join(' ')}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        shuffle() {
+            this.render(this.container.querySelector('.rsa-mobile') ? 'mobile' : 'desktop');
+        }
+        
+        toggleAutoPlay() {
+            this.isPlaying = !this.isPlaying;
+            if (this.isPlaying) {
+                this.interval = setInterval(() => this.shuffle(), 2000);
+            } else {
+                clearInterval(this.interval);
+            }
+            this.render(this.container.querySelector('.rsa-mobile') ? 'mobile' : 'desktop');
+        }
+        
+        escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str || '';
+            return div.innerHTML;
+        }
+    }
+    
+    // ========================================
+    // AD STRENGTH INDIKÁTOR
+    // ========================================
+    class AdStrengthMeter {
+        constructor(containerId) {
+            this.container = document.getElementById(containerId);
+        }
+        
+        calculate(headlines, descriptions, keywords = []) {
+            let score = 0;
+            let issues = [];
+            let positives = [];
+            
+            const hCount = (headlines || []).length;
+            const dCount = (descriptions || []).length;
+            
+            // Headline count (max 20 points)
+            if (hCount >= 15) { score += 20; positives.push('✓ Elegendő headline (15+)'); }
+            else if (hCount >= 10) { score += 15; issues.push('• Adj hozzá még ' + (15-hCount) + ' headline-t'); }
+            else if (hCount >= 5) { score += 8; issues.push('⚠️ Túl kevés headline (' + hCount + '/15)'); }
+            else { issues.push('❌ Kritikusan kevés headline!'); }
+            
+            // Description count (max 20 points)
+            if (dCount >= 4) { score += 20; positives.push('✓ Elegendő description (4)'); }
+            else if (dCount >= 2) { score += 10; issues.push('• Adj hozzá még ' + (4-dCount) + ' description-t'); }
+            else { issues.push('❌ Több description szükséges!'); }
+            
+            // Headline diversity (max 20 points)
+            const uniqueStarts = new Set((headlines || []).map(h => (h || '').substring(0, 10).toLowerCase()));
+            const diversityRatio = uniqueStarts.size / Math.max(hCount, 1);
+            if (diversityRatio > 0.8) { score += 20; positives.push('✓ Változatos headline-ok'); }
+            else if (diversityRatio > 0.5) { score += 10; issues.push('• Variáld a headline kezdeteket'); }
+            else { issues.push('⚠️ Túl hasonló headline-ok'); }
+            
+            // Character utilization (max 20 points)
+            const avgHLen = headlines?.length ? headlines.reduce((a,h) => a + (h||'').length, 0) / hCount : 0;
+            const avgDLen = descriptions?.length ? descriptions.reduce((a,d) => a + (d||'').length, 0) / dCount : 0;
+            
+            if (avgHLen >= 25 && avgDLen >= 75) { score += 20; positives.push('✓ Jó karakterkihasználás'); }
+            else if (avgHLen >= 20 && avgDLen >= 60) { score += 12; issues.push('• Használd ki jobban a karakterlimitet'); }
+            else { issues.push('⚠️ Túl rövid szövegek'); }
+            
+            // Keyword presence (max 20 points)
+            if (keywords.length > 0) {
+                const allText = [...(headlines||[]), ...(descriptions||[])].join(' ').toLowerCase();
+                const keywordMatches = keywords.filter(kw => allText.includes(kw.toLowerCase())).length;
+                const kwRatio = keywordMatches / keywords.length;
+                if (kwRatio >= 0.6) { score += 20; positives.push('✓ Jó kulcsszó lefedettség'); }
+                else if (kwRatio >= 0.3) { score += 10; issues.push('• Használj több kulcsszót'); }
+                else { issues.push('⚠️ Kulcsszavak hiányoznak'); }
+            } else {
+                score += 10; // Nincs kulcsszó megadva, semleges
+            }
+            
+            return { score, issues, positives };
+        }
+        
+        render(headlines, descriptions, keywords = []) {
+            if (!this.container) return;
+            
+            const { score, issues, positives } = this.calculate(headlines, descriptions, keywords);
+            
+            let label, colorClass;
+            if (score >= 80) { label = 'Kiváló'; colorClass = 'strength-excellent'; }
+            else if (score >= 60) { label = 'Jó'; colorClass = 'strength-good'; }
+            else if (score >= 40) { label = 'Közepes'; colorClass = 'strength-average'; }
+            else { label = 'Gyenge'; colorClass = 'strength-poor'; }
+            
+            this.container.innerHTML = `
+                <div class="ad-strength-meter ${colorClass}">
+                    <div class="strength-header">
+                        <span class="strength-label">Hirdetés Ereje:</span>
+                        <span class="strength-value">${label}</span>
+                    </div>
+                    <div class="strength-bar">
+                        <div class="strength-fill" style="width: ${score}%"></div>
+                    </div>
+                    <div class="strength-score">${score}/100</div>
+                    <div class="strength-details">
+                        ${positives.map(p => `<div class="strength-positive">${p}</div>`).join('')}
+                        ${issues.map(i => `<div class="strength-issue">${i}</div>`).join('')}
+                    </div>
+                </div>
+            `;
+        }
+    }
+    
+    // Global instances
+    window.rsaPreview = new RSAPreview('rsaPreviewContainer');
+    window.adStrength = new AdStrengthMeter('adStrengthContainer');
+    
+    // ========================================
+    // LANDING PAGE FUNKCIÓK
+    // ========================================
+    
+    // Landing section váltás
+    function showLandingSection(section) {
+        document.querySelectorAll('.landing-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.landing-section').forEach(s => s.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('landing-' + section)?.classList.add('active');
+    }
+    
+    // Relevancia Ellenőrzés
+    document.getElementById('relevanceForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const btn = document.getElementById('checkRelevanceBtn');
+        const resultsDiv = document.getElementById('relevanceResults');
+        
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Ellenőrzés...';
+        resultsDiv.innerHTML = '<div class="loading">Weboldal elemzése folyamatban...</div>';
+        
+        const url = document.getElementById('relevanceUrl').value;
+        const headlines = document.getElementById('relevanceHeadlines').value.split('\n').filter(h => h.trim());
+        const keywords = document.getElementById('relevanceKeywords').value.split('\n').filter(k => k.trim());
+        
+        const formData = new FormData();
+        formData.append('action', 'check_relevance');
+        formData.append('url', url);
+        headlines.forEach(h => formData.append('headlines[]', h));
+        keywords.forEach(k => formData.append('keywords[]', k));
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            
+            if (data.success) {
+                resultsDiv.innerHTML = renderRelevanceResults(data);
+            } else {
+                resultsDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+            }
+        } catch (err) {
+            resultsDiv.innerHTML = `<div class="alert alert-error">❌ Hiba: ${err.message}</div>`;
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '🔍 Relevancia Ellenőrzés';
+    });
+    
+    // Relevancia eredmények megjelenítése
+    function renderRelevanceResults(data) {
+        const kw = data.keyword_relevance || {};
+        const pm = data.promise_match || {};
+        const qs = data.qs_prediction || {};
+        const recs = data.recommendations || [];
+        
+        let html = '<div class="relevance-results">';
+        
+        // QS Prediction
+        if (qs.score) {
+            html += `
+                <div class="qs-prediction">
+                    <div class="qs-pred-score ${qs.color}">${qs.score}</div>
+                    <div class="qs-pred-info">
+                        <h4>🎯 Becsült Quality Score</h4>
+                        <div class="qs-pred-factors">
+                            ${(qs.factors || []).map(f => `<span class="qs-factor ${f.status}">${f.factor}: ${f.impact}</span>`).join('')}
+                        </div>
+                        <div class="qs-pred-cpc">💰 ${qs.cpc_impact}</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Kulcsszó relevancia
+        html += `<div class="keyword-match-grid">`;
+        
+        if (kw.found?.length) {
+            html += `<div class="kw-match-card found">
+                <div class="kw-match-header">✅ Megtalálva (${kw.found.length})</div>
+                <div class="kw-list">${kw.found.map(k => `<span class="kw-tag">${k}</span>`).join('')}</div>
+            </div>`;
+        }
+        
+        if (kw.partial?.length) {
+            html += `<div class="kw-match-card partial">
+                <div class="kw-match-header">🟡 Részleges (${kw.partial.length})</div>
+                <div class="kw-list">${kw.partial.map(k => `<span class="kw-tag">${k}</span>`).join('')}</div>
+            </div>`;
+        }
+        
+        if (kw.missing?.length) {
+            html += `<div class="kw-match-card missing">
+                <div class="kw-match-header">❌ Hiányzik (${kw.missing.length})</div>
+                <div class="kw-list">${kw.missing.map(k => `<span class="kw-tag">${k}</span>`).join('')}</div>
+            </div>`;
+        }
+        
+        html += `</div>`;
+        
+        // Ígéret problémák
+        if (pm.issues?.length) {
+            html += `<div class="promise-issues"><h4>⚠️ Hirdetési Ígéretek Problémái</h4>`;
+            pm.issues.forEach(issue => {
+                html += `<div class="promise-issue">${issue.message}</div>`;
+            });
+            html += `</div>`;
+        }
+        
+        // Javaslatok
+        if (recs.length) {
+            html += `<div class="cro-tips-list"><h4>💡 Javaslatok</h4>`;
+            recs.forEach(rec => {
+                html += `
+                    <div class="cro-tip ${rec.type}">
+                        <div class="cro-tip-icon">${rec.icon || '💡'}</div>
+                        <div class="cro-tip-content">
+                            <div class="cro-tip-title">${rec.title}</div>
+                            <div class="cro-tip-action">${rec.action}</div>
+                            ${rec.impact ? `<div class="cro-tip-impact">📈 ${rec.impact}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+        }
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // USP Kivonatolás
+    document.getElementById('uspForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const btn = document.getElementById('extractUspBtn');
+        const resultsDiv = document.getElementById('uspResults');
+        
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Elemzés...';
+        resultsDiv.innerHTML = '<div class="loading">USP-k keresése a weboldalon...</div>';
+        
+        const formData = new FormData();
+        formData.append('action', 'extract_usps');
+        formData.append('url', document.getElementById('uspUrl').value);
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            
+            if (data.success) {
+                resultsDiv.innerHTML = renderUSPResults(data);
+            } else {
+                resultsDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+            }
+        } catch (err) {
+            resultsDiv.innerHTML = `<div class="alert alert-error">❌ Hiba: ${err.message}</div>`;
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '⭐ USP-k Kivonatolása';
+    });
+    
+    // USP eredmények megjelenítése
+    function renderUSPResults(data) {
+        if (!data.usps?.length) {
+            return '<div class="alert alert-info">ℹ️ Nem találtunk egyértelmű USP-ket a weboldalon.</div>';
+        }
+        
+        let html = `
+            <div class="usp-results">
+                <div class="alert alert-success">✅ ${data.count} USP-t találtunk a weboldalon!</div>
+                <div class="usp-grid">
+        `;
+        
+        data.usps.forEach(usp => {
+            html += `
+                <div class="usp-card">
+                    <div class="usp-card-header">
+                        <div class="usp-icon">${usp.icon}</div>
+                        <div>
+                            <div class="usp-type">${usp.type}</div>
+                            <div class="usp-text">${usp.text}</div>
+                        </div>
+                    </div>
+                    ${usp.context ? `<div class="usp-context">"${usp.context}"</div>` : ''}
+                    ${usp.headline_suggestion ? `
+                        <div class="usp-suggestion">
+                            <span>💡 ${usp.headline_suggestion}</span>
+                            <button class="btn btn-sm copy-btn" onclick="navigator.clipboard.writeText('${usp.headline_suggestion}')">📋</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        
+        // Headline javaslatok összesítve
+        if (data.headline_suggestions?.length) {
+            html += `
+                <div class="card" style="margin-top: 20px;">
+                    <h4>📝 Javasolt Headlines</h4>
+                    <div class="copy-list">
+                        ${data.headline_suggestions.map(h => `
+                            <div class="copy-item">
+                                <span>${h}</span>
+                                <button class="btn btn-sm" onclick="navigator.clipboard.writeText('${h}')">📋</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // CRO Audit form
+    document.getElementById('visionForm')?.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const btn = document.getElementById('visionBtn');
+        const resultsDiv = document.getElementById('visionResults');
+        
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Elemzés...';
+        resultsDiv.innerHTML = '<div class="loading">CRO audit folyamatban... (ez akár 30 másodpercig is tarthat)</div>';
+        
+        const formData = new FormData(this);
+        
+        try {
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            
+            if (data.success || data.overall_score) {
+                resultsDiv.innerHTML = renderCROResults(data);
+            } else {
+                resultsDiv.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+            }
+        } catch (err) {
+            resultsDiv.innerHTML = `<div class="alert alert-error">❌ Hiba: ${err.message}</div>`;
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '👁️ CRO Audit Futtatása';
+    });
+    
+    // CRO eredmények
+    function renderCROResults(data) {
+        let html = '<div class="cro-results" style="margin-top: 24px;">';
+        
+        // Overall score
+        const score = data.overall_score || 0;
+        const scoreClass = score >= 70 ? 'good' : (score >= 40 ? 'warning' : 'critical');
+        
+        html += `
+            <div class="relevance-score-card">
+                <div class="relevance-score ${scoreClass}">${score}</div>
+                <div class="relevance-info">
+                    <h4>CRO Összpontszám</h4>
+                    <p>${score >= 70 ? 'Jó alap, de mindig van mit javítani' : (score >= 40 ? 'Közepes - fejlesztések szükségesek' : 'Gyenge - sürgős javítások kellenek!')}</p>
+                </div>
+            </div>
+        `;
+        
+        // CRO Tips
+        if (data.cro_tips?.length) {
+            html += `<div class="cro-tips-list"><h4>💡 CRO Javaslatok (${data.cro_tips.length})</h4>`;
+            
+            data.cro_tips.forEach(tip => {
+                html += `
+                    <div class="cro-tip ${tip.severity}">
+                        <div class="cro-tip-icon">${tip.icon}</div>
+                        <div class="cro-tip-content">
+                            <div class="cro-tip-title">${tip.tip}</div>
+                            <div class="cro-tip-action">${tip.action}</div>
+                            ${tip.impact ? `<div class="cro-tip-impact">📈 ${tip.impact}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+        }
+        
+        // Top 3 fixes
+        if (data.top_3_fixes?.length) {
+            html += `<div class="card" style="margin-top: 20px;"><h4>🎯 Top 3 Prioritás</h4><ol>`;
+            data.top_3_fixes.forEach(fix => {
+                html += `<li><strong>${fix.fix}</strong> <span class="badge">${fix.impact}</span></li>`;
+            });
+            html += '</ol></div>';
+        }
+        
+        // Positive aspects
+        if (data.positive_aspects?.length) {
+            html += `<div class="card" style="margin-top: 20px; background: #f0fdf4;"><h4>✅ Ami Jól Működik</h4><ul>`;
+            data.positive_aspects.forEach(p => {
+                html += `<li>${p}</li>`;
+            });
+            html += '</ul></div>';
+        }
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // ========================================
+    // MOBILE MENU
+    // ========================================
+    function toggleMobileMenu() {
+        const menu = document.getElementById('mobileMenu');
+        menu.classList.toggle('open');
+        document.body.style.overflow = menu.classList.contains('open') ? 'hidden' : '';
+    }
+    
+    // Close mobile menu on link click
+    document.querySelectorAll('.mobile-nav a').forEach(link => {
+        link.addEventListener('click', () => {
+            document.getElementById('mobileMenu').classList.remove('open');
+            document.body.style.overflow = '';
+        });
+    });
+    
+    // Close on escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.getElementById('mobileMenu')?.classList.remove('open');
+            document.body.style.overflow = '';
         }
     });
     </script>
