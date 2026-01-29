@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AdMaster Pro</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header>
+      <h1>🚀 AdMaster Pro</h1>
+      <span class="version">v1.0</span>
+    </header>
+
+    <!-- Status -->
+    <div id="status" class="status">
+      <span class="status-dot"></span>
+      <span class="status-text">Kapcsolódás...</span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" data-tab="headlines">Headlines</button>
+      <button class="tab" data-tab="descriptions">Descriptions</button>
+      <button class="tab" data-tab="callonly">Call-Only</button>
+    </div>
+
+    <!-- Headlines Tab -->
+    <div id="headlines-tab" class="tab-content active">
+      <div class="content-header">
+        <span>📝 Headlines (0)</span>
+        <button class="btn-small" id="refreshHeadlines">🔄</button>
+      </div>
+      <div id="headlines-list" class="items-list">
+        <p class="empty">Nincs adat. Generálj az AdMaster-ben!</p>
+      </div>
+      <button class="btn-primary" id="fillAllHeadlines">📋 Mind beillesztése</button>
+    </div>
+
+    <!-- Descriptions Tab -->
+    <div id="descriptions-tab" class="tab-content">
+      <div class="content-header">
+        <span>📝 Descriptions (0)</span>
+        <button class="btn-small" id="refreshDescriptions">🔄</button>
+      </div>
+      <div id="descriptions-list" class="items-list">
+        <p class="empty">Nincs adat.</p>
+      </div>
+      <button class="btn-primary" id="fillAllDescriptions">📋 Mind beillesztése</button>
+    </div>
+
+    <!-- Call-Only Tab -->
+    <div id="callonly-tab" class="tab-content">
+      <div class="content-header">
+        <span>📞 Call-Only Ads (0)</span>
+      </div>
+      <div id="callonly-list" class="items-list">
+        <p class="empty">Nincs adat.</p>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions">
+      <button class="btn-action" id="openAdMaster">🌐 AdMaster Megnyitása</button>
+      <button class="btn-action" id="syncData">🔄 Szinkronizálás</button>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+      <a href="options.html" target="_blank">⚙️ Beállítások</a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

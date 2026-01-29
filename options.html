@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AdMaster Pro - Beállítások</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      padding: 40px;
+    }
+    
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+    
+    .subtitle {
+      color: #64748b;
+      margin-bottom: 30px;
+    }
+    
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+    
+    .card h2 {
+      font-size: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .form-group {
+      margin-bottom: 16px;
+    }
+    
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+    
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+    
+    input[type="text"],
+    input[type="url"],
+    input[type="password"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: #ea580c;
+      box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.1);
+    }
+    
+    .help-text {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 6px;
+    }
+    
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    
+    .btn-primary {
+      background: #ea580c;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #c2410c;
+    }
+    
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+    
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    
+    .alert {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+    
+    .alert-success {
+      background: #dcfce7;
+      color: #16a34a;
+    }
+    
+    .alert-error {
+      background: #fef2f2;
+      color: #dc2626;
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    .divider {
+      height: 1px;
+      background: #e2e8f0;
+      margin: 20px 0;
+    }
+    
+    .test-result {
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    
+    .test-result.success {
+      background: #dcfce7;
+      color: #16a34a;
+    }
+    
+    .test-result.error {
+      background: #fef2f2;
+      color: #dc2626;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 AdMaster Pro Beállítások</h1>
+    <p class="subtitle">Chrome Extension konfigurálása</p>
+    
+    <div id="alert" class="alert hidden"></div>
+    
+    <div class="card">
+      <h2>🌐 Szerver Kapcsolat</h2>
+      
+      <div class="form-group">
+        <label for="serverUrl">AdMaster Pro URL</label>
+        <input type="url" id="serverUrl" placeholder="https://admaster.yourdomain.hu">
+        <p class="help-text">Az AdMaster Pro telepítésed URL-je (pl. https://admaster.rsagency.hu)</p>
+      </div>
+      
+      <div class="form-group">
+        <label for="apiKey">API Kulcs (opcionális)</label>
+        <input type="password" id="apiKey" placeholder="Ha van beállítva...">
+        <p class="help-text">Csak ha az AdMaster-ben be van állítva API kulcs a bővítményhez</p>
+      </div>
+      
+      <button class="btn btn-secondary" id="testConnection">🔌 Kapcsolat Tesztelése</button>
+      <div id="testResult" class="test-result hidden"></div>
+    </div>
+    
+    <div class="card">
+      <h2>⚙️ Működés</h2>
+      
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="showFab" checked>
+          Lebegő gomb megjelenítése a Google Ads oldalon
+        </label>
+      </div>
+      
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="autoSync" checked>
+          Automatikus szinkronizálás megnyitáskor
+        </label>
+      </div>
+    </div>
+    
+    <div class="card">
+      <h2>📋 Importálás</h2>
+      <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">
+        Másold be a hirdetésszövegeket JSON formátumban:
+      </p>
+      
+      <div class="form-group">
+        <textarea id="importData" rows="6" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: monospace; font-size: 12px;" placeholder='{"headlines": ["Headline 1", "Headline 2"], "descriptions": ["Desc 1"]}'></textarea>
+      </div>
+      
+      <button class="btn btn-secondary" id="importBtn">📥 Importálás</button>
+    </div>
+    
+    <div class="btn-group">
+      <button class="btn btn-primary" id="saveBtn">💾 Beállítások Mentése</button>
+      <button class="btn btn-secondary" id="resetBtn">🗑️ Alaphelyzet</button>
+    </div>
+  </div>
+  
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+/* AdMaster Pro - Content Script Styles */
+
+/* Notification */
+.admaster-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 999999;
+  transform: translateX(120%);
+  transition: transform 0.3s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+}
+
+.admaster-notification.show {
+  transform: translateX(0);
+}
+
+.admaster-notification.admaster-success {
+  border-left: 4px solid #16a34a;
+}
+
+.admaster-notification.admaster-warning {
+  border-left: 4px solid #f59e0b;
+}
+
+.admaster-notification.admaster-error {
+  border-left: 4px solid #dc2626;
+}
+
+.admaster-notification.admaster-info {
+  border-left: 4px solid #2563eb;
+}
+
+.admaster-icon {
+  font-size: 18px;
+}
+
+.admaster-message {
+  color: #1e293b;
+}
+
+/* Floating Action Button */
+#admaster-fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(234, 88, 12, 0.4);
+  z-index: 999998;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#admaster-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(234, 88, 12, 0.5);
+}
+
+/* Floating Panel */
+#admaster-panel {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  width: 280px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.15);
+  z-index: 999997;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.admaster-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.admaster-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.admaster-close:hover {
+  opacity: 1;
+}
+
+.admaster-panel-content {
+  padding: 16px;
+}
+
+.admaster-panel-content p {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 12px;
+}
+
+.admaster-panel-btn {
+  width: 100%;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.admaster-panel-btn:hover {
+  background: #f8fafc;
+  border-color: #ea580c;
+  color: #ea580c;
+}
+
+.admaster-panel-btn:last-child {
+  margin-bottom: 0;
+}
