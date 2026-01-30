@@ -9,6 +9,8 @@
  * - Konkrét javaslatok generálása
  */
 
+require_once __DIR__ . '/Security.php';
+
 class LandingPageAnalyzer {
     
     private string $url;
@@ -32,51 +34,42 @@ class LandingPageAnalyzer {
     ];
 
     public function __construct(string $url, array $industry = []) {
-        $this->url = $this->normalizeUrl($url);
+        // SSRF védelem - URL validálás
+        $validation = Security::validateExternalUrl($url);
+        if (!$validation['valid']) {
+            throw new InvalidArgumentException('Biztonsági hiba: ' . $validation['error']);
+        }
+        $this->url = $validation['url'];
         $this->industry = $industry;
-    }
-
-    private function normalizeUrl(string $url): string {
-        $url = trim($url);
-        if (!preg_match('/^https?:\/\//i', $url)) {
-            $url = 'https://' . $url;
-        }
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new InvalidArgumentException('Érvénytelen URL.');
-        }
-        return $url;
     }
 
     public function fetch(): bool {
         $startTime = microtime(true);
         
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $this->url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 5,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
-            CURLOPT_HEADER => true,
-            CURLOPT_ENCODING => 'gzip, deflate'
-        ]);
-        
-        $response = curl_exec($ch);
+        // Biztonságos lekérés Security osztályon keresztül
+        $result = Security::fetchExternalUrl($this->url);
         $this->loadTime = microtime(true) - $startTime;
         
-        $error = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        if (!$result['success']) {
+            $this->errors[] = $result['error'];
+            return false;
+        }
+        
+        // Header lekérés külön CURL hívásal (HEAD request)
+        $ch = curl_init();
+        curl_setopt_array($ch, array_merge(
+            Security::getSecureCurlOptions($this->url),
+            [
+                CURLOPT_NOBODY => true,
+                CURLOPT_HEADER => true
+            ]
+        ));
+        $headerResponse = curl_exec($ch);
         $this->url = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
         
-        if ($error) { $this->errors[] = "Hiba: $error"; return false; }
-        if ($httpCode !== 200) { $this->errors[] = "HTTP $httpCode"; return false; }
-        
-        $this->headers = $this->parseHeaders(substr($response, 0, $headerSize));
-        $this->html = substr($response, $headerSize);
+        $this->headers = $this->parseHeaders($headerResponse);
+        $this->html = $result['content'];
         return true;
     }
 

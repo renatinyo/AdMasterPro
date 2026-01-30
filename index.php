@@ -712,43 +712,6 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     </script>
     <?php endif; ?>
     
-    <!-- Mentés Ügyfélhez Modal - MINDIG ELÉRHETŐ -->
-    <div class="modal-overlay" id="saveToClientModal" style="display:none;">
-        <div class="modal">
-            <div class="modal-header">
-                <h3>💾 Mentés Ügyfélhez</h3>
-                <button class="modal-close" onclick="closeSaveToClientModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Válassz ügyfelet:</label>
-                    <select id="saveToClientSelect" class="form-control">
-                        <option value="">-- Válassz meglévő ügyfelet --</option>
-                        <?php
-                        if (!isset($clientManager)) {
-                            require_once __DIR__ . '/includes/ClientManager.php';
-                            $clientManager = new ClientManager();
-                        }
-                        $allClientsForModal = $clientManager->getClients();
-                        foreach ($allClientsForModal as $client):
-                        ?>
-                        <option value="<?= htmlspecialchars($client['id']) ?>"><?= htmlspecialchars($client['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="divider-text"><span>vagy</span></div>
-                <div class="form-group">
-                    <label>Új ügyfél létrehozása:</label>
-                    <input type="text" id="newClientName" class="form-control" placeholder="Cégnév...">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeSaveToClientModal()">Mégse</button>
-                <button class="btn btn-primary" onclick="saveGenerationToClient()">💾 Mentés</button>
-            </div>
-        </div>
-    </div>
-    
     <!-- ELŐZMÉNYEK SZEKCIÓ -->
     <?php
     $historyFile = __DIR__ . '/data/generation_history.json';
@@ -832,18 +795,8 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
         }
     }
     
-    // Korábbi generálás mentése ügyfélhez
-    function saveHistoryToClient() {
-        if (!window.selectedHistoryItem) {
-            alert('❌ Nincs kiválasztott generálás!');
-            return;
-        }
-        // Beállítjuk a lastResultData-t a kiválasztott history item-re
-        lastResultData = window.selectedHistoryItem;
-        // Bezárjuk a history modalt és megnyitjuk a mentés modalt
-        closeHistoryModal();
-        showSaveToClientModal();
-    }
+    // Korábbi generálás mentése ügyfélhez - a fő scriptben lesz definiálva
+    // saveHistoryToClient() a fő scriptben van
     </script>
     <?php endif; ?>
     <?php endif; ?>
@@ -2877,6 +2830,41 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         </div>
     </main>
 
+    <!-- Mentés Ügyfélhez Modal - GLOBÁLISAN ELÉRHETŐ -->
+    <div class="modal-overlay" id="saveToClientModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:9999;">
+        <div class="modal" style="background:white; border-radius:12px; max-width:450px; width:90%; padding:0; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid #e5e7eb;">
+                <h3 style="margin:0; font-size:18px;">💾 Mentés Ügyfélhez</h3>
+                <button class="modal-close" onclick="closeSaveToClientModal()" style="background:none; border:none; font-size:24px; cursor:pointer; color:#64748b;">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:20px;">
+                <div class="form-group">
+                    <label>Válassz ügyfelet:</label>
+                    <select id="saveToClientSelect" class="form-control">
+                        <option value="">-- Válassz meglévő ügyfelet --</option>
+                        <?php
+                        require_once __DIR__ . '/includes/ClientManager.php';
+                        $globalClientManager = new ClientManager();
+                        $allClientsForModal = $globalClientManager->getClients();
+                        foreach ($allClientsForModal as $client):
+                        ?>
+                        <option value="<?= htmlspecialchars($client['id']) ?>"><?= htmlspecialchars($client['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="divider-text"><span>vagy</span></div>
+                <div class="form-group">
+                    <label>Új ügyfél létrehozása:</label>
+                    <input type="text" id="newClientName" class="form-control" placeholder="Cégnév...">
+                </div>
+            </div>
+            <div class="modal-footer" style="display:flex; gap:12px; justify-content:flex-end; padding:16px 20px; border-top:1px solid #e5e7eb;">
+                <button class="btn btn-secondary" onclick="closeSaveToClientModal()" style="padding:10px 20px; border-radius:8px; cursor:pointer;">Mégse</button>
+                <button class="btn btn-primary" onclick="saveGenerationToClient()" style="padding:10px 20px; border-radius:8px; cursor:pointer; background:#3b82f6; color:white; border:none;">💾 Mentés</button>
+            </div>
+        </div>
+    </div>
+
     <footer>
         <div class="container">
             <span><?= APP_NAME ?> v<?= APP_VERSION ?></span>
@@ -2910,14 +2898,50 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
     
     // Mentés ügyfélhez modal
     function showSaveToClientModal() {
-        if (!lastResultData) {
+        console.log('showSaveToClientModal() called');
+        // Ellenőrizzük mindkét helyen a lastResultData-t
+        const data = window.lastResultData || lastResultData;
+        console.log('data:', data);
+        if (!data) {
             alert('❌ Nincs elérhető generálás! Először generálj egy kampányt a Kampány fülön.');
             return;
         }
-        document.getElementById('saveToClientModal').style.display = 'flex';
+        // Beállítjuk a globális változót is
+        lastResultData = data;
+        const modal = document.getElementById('saveToClientModal');
+        console.log('modal element:', modal);
+        if (modal) {
+            modal.style.display = 'flex';
+            console.log('Modal opened, display:', modal.style.display);
+        } else {
+            console.error('Modal NOT FOUND!');
+            alert('❌ Modal nem található!');
+        }
     }
     function closeSaveToClientModal() {
         document.getElementById('saveToClientModal').style.display = 'none';
+    }
+    
+    // Korábbi generálás mentése ügyfélhez (history modal-ból hívva)
+    function saveHistoryToClient() {
+        if (!window.selectedHistoryItem) {
+            alert('❌ Nincs kiválasztott generálás!');
+            return;
+        }
+        // Beállítjuk a lastResultData-t a kiválasztott history item-re
+        window.lastResultData = window.selectedHistoryItem;
+        lastResultData = window.selectedHistoryItem;
+        // Bezárjuk a history modalt
+        if (typeof closeHistoryModal === 'function') {
+            closeHistoryModal();
+        }
+        // Megnyitjuk a mentés modalt
+        const modal = document.getElementById('saveToClientModal');
+        if (modal) {
+            modal.style.display = 'flex';
+        } else {
+            alert('❌ A mentés modal nem található! Frissítsd az oldalt.');
+        }
     }
     
     // Mentés ügyfélhez - az adatokat a PHP-ból vesszük

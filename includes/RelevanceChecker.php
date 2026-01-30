@@ -9,6 +9,8 @@
  * - Quality Score előrejelzés
  */
 
+require_once __DIR__ . '/Security.php';
+
 class RelevanceChecker {
     
     private string $url;
@@ -22,41 +24,26 @@ class RelevanceChecker {
      * Konstruktor
      */
     public function __construct(string $url) {
-        $this->url = $this->normalizeUrl($url);
-    }
-    
-    private function normalizeUrl(string $url): string {
-        $url = trim($url);
-        if (!preg_match('/^https?:\/\//i', $url)) {
-            $url = 'https://' . $url;
+        // SSRF védelem
+        $validation = Security::validateExternalUrl($url);
+        if (!$validation['valid']) {
+            throw new InvalidArgumentException('Biztonsági hiba: ' . $validation['error']);
         }
-        return $url;
+        $this->url = $validation['url'];
     }
     
     /**
-     * Weboldal letöltése
+     * Weboldal letöltése - biztonságos módon
      */
     public function fetch(): bool {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $this->url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 5,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
-            CURLOPT_ENCODING => 'gzip, deflate'
-        ]);
+        // Biztonságos lekérés Security osztályon keresztül
+        $result = Security::fetchExternalUrl($this->url);
         
-        $this->html = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($httpCode !== 200 || empty($this->html)) {
+        if (!$result['success'] || empty($result['content'])) {
             return false;
         }
         
+        $this->html = $result['content'];
         $this->text = $this->extractText($this->html);
         return true;
     }

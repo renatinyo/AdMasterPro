@@ -51,15 +51,70 @@ class CsvAnalyzer {
         // Fájl beolvasása
         $content = file_get_contents($filepath);
         
-        // BOM eltávolítása
-        $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
+        // BOM eltávolítása (UTF-8, UTF-16 LE/BE)
+        $boms = [
+            "\xEF\xBB\xBF" => 'UTF-8',           // UTF-8 BOM
+            "\xFF\xFE" => 'UTF-16LE',            // UTF-16 Little Endian
+            "\xFE\xFF" => 'UTF-16BE',            // UTF-16 Big Endian
+        ];
         
-        // UTF-8 konverzió ha szükséges
-        if (!mb_check_encoding($content, 'UTF-8')) {
-            $content = mb_convert_encoding($content, 'UTF-8', 'ISO-8859-2');
+        $detectedEncoding = null;
+        foreach ($boms as $bom => $encoding) {
+            if (strpos($content, $bom) === 0) {
+                $content = substr($content, strlen($bom));
+                $detectedEncoding = $encoding;
+                break;
+            }
         }
+        
+        // Intelligens karakterkódolás felismerés és konverzió
+        $content = $this->convertToUtf8($content, $detectedEncoding);
 
         return $this->parseContent($content);
+    }
+    
+    /**
+     * Intelligens UTF-8 konverzió
+     */
+    private function convertToUtf8(string $content, ?string $detectedEncoding = null): string {
+        // Ha már UTF-8, nincs teendő
+        if (mb_check_encoding($content, 'UTF-8')) {
+            return $content;
+        }
+        
+        // Ha BOM-ból tudjuk a kódolást
+        if ($detectedEncoding && $detectedEncoding !== 'UTF-8') {
+            return mb_convert_encoding($content, 'UTF-8', $detectedEncoding);
+        }
+        
+        // Próbáljuk felismerni a kódolást - prioritási sorrend
+        $encodings = [
+            'UTF-16LE',      // Excel gyakran ezt használja
+            'UTF-16BE',
+            'Windows-1250',  // Közép-európai Windows (magyar)
+            'ISO-8859-2',    // Latin-2 (közép-európai)
+            'Windows-1252',  // Nyugat-európai Windows
+            'ISO-8859-1',    // Latin-1
+        ];
+        
+        // mb_detect_encoding próbálása
+        $detected = mb_detect_encoding($content, $encodings, true);
+        if ($detected && $detected !== 'UTF-8') {
+            return mb_convert_encoding($content, 'UTF-8', $detected);
+        }
+        
+        // Ha nem sikerült, próbáljuk Windows-1250-et (magyar Excel leggyakoribb)
+        // Ellenőrizzük, vannak-e tipikus magyar karakterek rossz formában
+        if (preg_match('/[\x80-\xFF]/', $content)) {
+            // Próbáljuk Windows-1250-et
+            $converted = @mb_convert_encoding($content, 'UTF-8', 'Windows-1250');
+            if ($converted !== false) {
+                return $converted;
+            }
+        }
+        
+        // Végső fallback - istravel tisztítás
+        return mb_convert_encoding($content, 'UTF-8', 'UTF-8');
     }
 
     /**

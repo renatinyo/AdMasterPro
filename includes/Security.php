@@ -525,4 +525,225 @@ class Security {
                 return "'" . addslashes($value) . "'";
         }
     }
+    
+    // ========================================
+    // SSRF VÉDELEM ÉS URL KEZELÉS
+    // ========================================
+    
+    /**
+     * URL normalizálás - központosított metódus
+     */
+    public static function normalizeUrl(string $url): string {
+        $url = trim($url);
+        
+        // Protokoll hozzáadása ha nincs
+        if (!preg_match('/^https?:\/\//i', $url)) {
+            $url = 'https://' . $url;
+        }
+        
+        // Záró / eltávolítása
+        $url = rtrim($url, '/');
+        
+        return $url;
+    }
+    
+    /**
+     * SSRF elleni védelem - URL validálás külső lekérés előtt
+     * Megakadályozza belső hálózati címek elérését
+     */
+    public static function validateExternalUrl(string $url): array {
+        $result = ['valid' => false, 'error' => '', 'url' => ''];
+        
+        // Normalizálás
+        $url = self::normalizeUrl($url);
+        $result['url'] = $url;
+        
+        // URL parse
+        $parsed = parse_url($url);
+        if (!$parsed || !isset($parsed['host'])) {
+            $result['error'] = 'Érvénytelen URL formátum';
+            return $result;
+        }
+        
+        $host = strtolower($parsed['host']);
+        
+        // Protokoll ellenőrzés - csak HTTP(S) engedélyezett
+        $scheme = strtolower($parsed['scheme'] ?? 'https');
+        if (!in_array($scheme, ['http', 'https'])) {
+            $result['error'] = 'Csak HTTP és HTTPS protokoll engedélyezett';
+            return $result;
+        }
+        
+        // Tiltott hostnevek
+        $blockedHosts = [
+            'localhost',
+            'localhost.localdomain',
+            '127.0.0.1',
+            '0.0.0.0',
+            '::1',
+            '[::1]',
+            'metadata.google.internal', // Cloud metaadatok
+            '169.254.169.254', // AWS/GCP metadata endpoint
+        ];
+        
+        if (in_array($host, $blockedHosts)) {
+            $result['error'] = 'Belső cím nem érhető el';
+            self::log('warning', 'SSRF attempt blocked', ['url' => $url, 'host' => $host]);
+            return $result;
+        }
+        
+        // IP cím ellenőrzés
+        $ip = filter_var($host, FILTER_VALIDATE_IP);
+        if ($ip !== false) {
+            // Belső IP tartományok tiltása
+            if (self::isPrivateIp($ip)) {
+                $result['error'] = 'Privát IP cím nem érhető el';
+                self::log('warning', 'SSRF attempt blocked - private IP', ['url' => $url, 'ip' => $ip]);
+                return $result;
+            }
+        } else {
+            // Hostnév feloldása és ellenőrzése
+            $resolvedIps = @gethostbynamel($host);
+            if ($resolvedIps) {
+                foreach ($resolvedIps as $resolvedIp) {
+                    if (self::isPrivateIp($resolvedIp)) {
+                        $result['error'] = 'A domain belső IP-re mutat';
+                        self::log('warning', 'SSRF attempt blocked - resolved to private IP', [
+                            'url' => $url, 
+                            'host' => $host, 
+                            'resolved_ip' => $resolvedIp
+                        ]);
+                        return $result;
+                    }
+                }
+            }
+        }
+        
+        // Port ellenőrzés - csak standard portok
+        $port = $parsed['port'] ?? ($scheme === 'https' ? 443 : 80);
+        $allowedPorts = [80, 443, 8080, 8443];
+        if (!in_array($port, $allowedPorts)) {
+            $result['error'] = 'Nem engedélyezett port: ' . $port;
+            return $result;
+        }
+        
+        $result['valid'] = true;
+        return $result;
+    }
+    
+    /**
+     * Privát IP cím ellenőrzés
+     */
+    private static function isPrivateIp(string $ip): bool {
+        // filter_var a FILTER_FLAG_NO_PRIV_RANGE és FILTER_FLAG_NO_RES_RANGE flagekkel
+        $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+        
+        // Ha nem valid publikus IP, akkor privát/rezervált
+        return filter_var($ip, FILTER_VALIDATE_IP, $flags) === false;
+    }
+    
+    /**
+     * Biztonságos CURL beállítások külső URL lekéréshez
+     */
+    public static function getSecureCurlOptions(string $url): array {
+        return [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,  // SSL tanúsítvány ellenőrzés BEKAPCSOLVA
+            CURLOPT_SSL_VERIFYHOST => 2,     // Hostnév ellenőrzés
+            CURLOPT_USERAGENT => 'AdMaster Pro/' . APP_VERSION . ' (Landing Page Analyzer)',
+            CURLOPT_HTTPHEADER => [
+                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language: hu-HU,hu;q=0.9,en;q=0.8',
+            ],
+            // Privát IP-kre irányuló átirányítások blokkolása
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+        ];
+    }
+    
+    /**
+     * Biztonságos külső URL lekérés
+     */
+    public static function fetchExternalUrl(string $url): array {
+        $result = ['success' => false, 'content' => '', 'error' => '', 'info' => []];
+        
+        // SSRF ellenőrzés
+        $validation = self::validateExternalUrl($url);
+        if (!$validation['valid']) {
+            $result['error'] = $validation['error'];
+            return $result;
+        }
+        
+        $url = $validation['url'];
+        
+        // CURL lekérés
+        $ch = curl_init();
+        $options = self::getSecureCurlOptions($url);
+        curl_setopt_array($ch, $options);
+        
+        $content = curl_exec($ch);
+        $info = curl_getinfo($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        if ($error) {
+            $result['error'] = 'Kapcsolódási hiba: ' . $error;
+            return $result;
+        }
+        
+        // HTTP státusz ellenőrzés
+        if ($info['http_code'] < 200 || $info['http_code'] >= 400) {
+            $result['error'] = 'HTTP hiba: ' . $info['http_code'];
+            return $result;
+        }
+        
+        // Átirányítás utáni IP ellenőrzés
+        $finalUrl = $info['url'] ?? $url;
+        $finalValidation = self::validateExternalUrl($finalUrl);
+        if (!$finalValidation['valid']) {
+            $result['error'] = 'Az átirányított cím nem engedélyezett: ' . $finalValidation['error'];
+            self::log('warning', 'SSRF blocked after redirect', ['original' => $url, 'final' => $finalUrl]);
+            return $result;
+        }
+        
+        $result['success'] = true;
+        $result['content'] = $content;
+        $result['info'] = $info;
+        
+        return $result;
+    }
+    
+    // ========================================
+    // FÁJLNÉV BIZTONSÁG
+    // ========================================
+    
+    /**
+     * Biztonságos fájlnév - directory traversal ellen
+     */
+    public static function sanitizeFilename(string $filename): string {
+        // Null byte és vezérlő karakterek eltávolítása
+        $filename = preg_replace('/[\x00-\x1F\x7F]/', '', $filename);
+        
+        // Path separátorok eltávolítása
+        $filename = str_replace(['/', '\\', '..'], '', $filename);
+        
+        // Csak biztonságos karakterek megtartása
+        $filename = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $filename);
+        
+        // Dupla pontok eltávolítása (directory traversal)
+        $filename = preg_replace('/\.{2,}/', '.', $filename);
+        
+        // Üres fájlnév kezelése
+        if (empty($filename) || $filename === '.') {
+            $filename = 'unnamed_' . bin2hex(random_bytes(4));
+        }
+        
+        // Hossz korlátozás
+        return substr($filename, 0, 100);
+    }
 }
