@@ -104,17 +104,23 @@ class Security {
             ];
         }
         
-        // Credentials ellenőrzés
+        // Username: config.php-ból (fix)
         $adminUser = defined('ADMIN_USERNAME') ? ADMIN_USERNAME : 'admin';
-        $adminPassHash = defined('ADMIN_PASSWORD_HASH') ? ADMIN_PASSWORD_HASH : '';
         
-        // Ha nincs hash beállítva, használjuk a legacy ADMIN_PASSWORD-ot
+        // Jelszó hash prioritás: 1. DB  2. config HASH  3. config legacy
+        $adminPassHash = '';
+        if (class_exists('Settings')) {
+            $adminPassHash = Settings::get('admin_password_hash');
+        }
+        if (empty($adminPassHash) && defined('ADMIN_PASSWORD_HASH')) {
+            $adminPassHash = ADMIN_PASSWORD_HASH;
+        }
         if (empty($adminPassHash) && defined('ADMIN_PASSWORD')) {
             $adminPassHash = password_hash(ADMIN_PASSWORD, PASSWORD_ARGON2ID);
         }
         
         if (empty($adminPassHash)) {
-            return ['success' => false, 'error' => 'Admin jelszó nincs beállítva a config.php-ban!'];
+            return ['success' => false, 'error' => 'Admin jelszó nincs beállítva! Állítsd be a Beállítások oldalon.'];
         }
         
         // Username ellenőrzés (timing-safe)
@@ -168,8 +174,12 @@ class Security {
      * Login oldal megjelenítése szükséges?
      */
     public static function requireLogin(): bool {
-        // Ha REQUIRE_LOGIN nincs bekapcsolva, mindenki használhatja
-        if (!defined('REQUIRE_LOGIN') || !REQUIRE_LOGIN) {
+        // DB-ből: Settings::requireLogin(), fallback: config konstans
+        if (class_exists('Settings') && Database::isAvailable()) {
+            if (!Settings::requireLogin()) {
+                return false;
+            }
+        } elseif (!defined('REQUIRE_LOGIN') || !REQUIRE_LOGIN) {
             return false;
         }
         
@@ -487,12 +497,13 @@ class Security {
      * API kulcs validálás
      */
     public static function validateApiKey(): bool {
-        if (empty(ANTHROPIC_API_KEY)) {
+        $key = Settings::anthropicApiKey();
+        if (empty($key)) {
             return false;
         }
         
         // Alapvető formátum ellenőrzés
-        if (!preg_match('/^sk-ant-[a-zA-Z0-9\-_]+$/', ANTHROPIC_API_KEY)) {
+        if (!preg_match('/^sk-ant-[a-zA-Z0-9\-_]+$/', $key)) {
             return false;
         }
 
@@ -650,16 +661,17 @@ class Security {
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS => 3,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_TIMEOUT => 20,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => true,  // SSL tanúsítvány ellenőrzés BEKAPCSOLVA
-            CURLOPT_SSL_VERIFYHOST => 2,     // Hostnév ellenőrzés
-            CURLOPT_USERAGENT => 'AdMaster Pro/' . APP_VERSION . ' (Landing Page Analyzer)',
+            CURLOPT_SSL_VERIFYPEER => false,  // SSL lazítás - sok magyar oldal nem rendelkezik teljes tanúsítvánnyal
+            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
             CURLOPT_HTTPHEADER => [
                 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language: hu-HU,hu;q=0.9,en;q=0.8',
             ],
+            CURLOPT_ENCODING => '', // gzip elfogadás
             // Privát IP-kre irányuló átirányítások blokkolása
             CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
             CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,

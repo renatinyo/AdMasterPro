@@ -79,7 +79,7 @@ class VisionAnalyzer {
     ];
     
     public function __construct() {
-        $this->screenshotApiKey = defined('SCREENSHOT_API_KEY') ? SCREENSHOT_API_KEY : '';
+        $this->screenshotApiKey = Settings::screenshotApiKey();
         $this->screenshotApiUrl = defined('SCREENSHOT_API_URL') ? SCREENSHOT_API_URL : '';
     }
     
@@ -274,7 +274,7 @@ Válasz CSAK tiszta JSON (nincs markdown, nincs kód blokk):
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
-            'x-api-key: ' . ANTHROPIC_API_KEY,
+            'x-api-key: ' . Settings::anthropicApiKey(),
             'anthropic-version: 2023-06-01'
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, 120);

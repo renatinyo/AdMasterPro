@@ -47,6 +47,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step == 2) {
             $sql = file_get_contents(__DIR__ . '/data/schema.sql');
             $pdo->exec($sql);
             
+            // Indexek biztonságos létrehozása (nem dob hibát ha már létezik)
+            $indexes = [
+                ['clients', 'idx_clients_industry', 'industry'],
+                ['campaigns', 'idx_campaigns_client', 'client_id'],
+                ['keywords', 'idx_keywords_industry', 'industry'],
+                ['keyword_bank', 'idx_keyword_bank_industry', 'industry'],
+                ['headline_bank', 'idx_headline_bank_industry', 'industry'],
+                ['chat_history', 'idx_chat_session', 'session_id'],
+            ];
+            foreach ($indexes as [$table, $indexName, $column]) {
+                try {
+                    $pdo->exec("CREATE INDEX $indexName ON $table($column)");
+                } catch (PDOException $e) {
+                    // 1061 = Duplicate key name → index már létezik, OK
+                    if ($e->getCode() != '42000' && strpos($e->getMessage(), '1061') === false) {
+                        throw $e;
+                    }
+                }
+            }
+            
             // Config fájl frissítése
             $configContent = file_get_contents(__DIR__ . '/config.php');
             
@@ -72,19 +92,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $step == 2) {
                 $configContent
             );
             
-            // API key frissítése ha megadták
+            // API key frissítése: DB-BE MENTJÜK (nem config.php-ba!)
             if (!empty($api_key)) {
-                $configContent = preg_replace(
-                    "/define\('ANTHROPIC_API_KEY',.*?\);/",
-                    "define('ANTHROPIC_API_KEY', '$api_key');",
-                    $configContent
-                );
+                $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('anthropic_api_key', " . $pdo->quote($api_key) . ") ON DUPLICATE KEY UPDATE setting_value = " . $pdo->quote($api_key));
             }
             
             file_put_contents(__DIR__ . '/config.php', $configContent);
             
             // Verzió mentése
-            $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('db_version', '" . INSTALLER_VERSION . "') ON DUPLICATE KEY UPDATE setting_value = '" . INSTALLER_VERSION . "'");
+            $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('db_version', '6.1.0') ON DUPLICATE KEY UPDATE setting_value = '6.1.0'");
+            
+            // Default beállítások mentése DB-be
+            $defaults = [
+                'require_login' => '1',
+                'demo_mode' => '0',
+                'session_lifetime' => '3600',
+                'rate_limit_requests' => '30',
+                'rate_limit_window' => '3600',
+            ];
+            foreach ($defaults as $key => $val) {
+                $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES (" . $pdo->quote($key) . ", " . $pdo->quote($val) . ") ON DUPLICATE KEY UPDATE setting_key = setting_key");
+            }
             
             // Installed flag
             file_put_contents(__DIR__ . '/data/.installed', date('Y-m-d H:i:s') . "\nVersion: " . INSTALLER_VERSION);

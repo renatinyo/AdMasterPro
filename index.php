@@ -17,9 +17,12 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Security.php';
+require_once __DIR__ . '/includes/Database.php';
+require_once __DIR__ . '/includes/Settings.php';
 require_once __DIR__ . '/includes/ClientManager.php';
 
 Security::initSession();
+Database::connect();
 
 // ========================================
 // BELÉPÉS ELLENŐRZÉS
@@ -50,7 +53,7 @@ if (file_exists($customFile)) {
 require_once __DIR__ . '/data/strategies.php';
 
 $clientManager = new ClientManager();
-$api_key_valid = !empty(ANTHROPIC_API_KEY) && strlen(ANTHROPIC_API_KEY) > 20;
+$api_key_valid = Settings::isConfigured('anthropic_api_key');
 
 // Aktuális tab
 $tab = $_GET['tab'] ?? 'assistant';
@@ -102,6 +105,7 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
+    <script>window.csrfToken = '<?= Security::generateCsrfToken() ?>';</script>
     <header class="header-compact">
         <div class="container">
             <div class="header-content">
@@ -139,13 +143,14 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                     
                     <!-- Adatok csoport -->
                     <div class="nav-dropdown">
-                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['clients', 'keywords', 'industries', 'strategies']) ? 'active' : '' ?>">
+                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['clients', 'headlines', 'keywords', 'industries', 'strategies']) ? 'active' : '' ?>">
                             <span class="nav-icon">📁</span>
                             <span class="nav-text">Adatok</span>
                             <span class="dropdown-arrow">▾</span>
                         </button>
                         <div class="nav-dropdown-menu">
                             <a href="?tab=clients" class="<?= $tab === 'clients' ? 'active' : '' ?>">🏢 Ügyfelek</a>
+                            <a href="?tab=headlines" class="<?= $tab === 'headlines' ? 'active' : '' ?>">✍️ Szövegbank</a>
                             <a href="?tab=keywords" class="<?= $tab === 'keywords' ? 'active' : '' ?>">🔤 Kulcsszóbank</a>
                             <a href="?tab=industries" class="<?= $tab === 'industries' ? 'active' : '' ?>">🏭 Iparágak</a>
                             <a href="?tab=strategies" class="<?= $tab === 'strategies' ? 'active' : '' ?>">📋 Stratégiák</a>
@@ -154,7 +159,7 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                     
                     <!-- Eszközök csoport -->
                     <div class="nav-dropdown">
-                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['competitors', 'landing', 'pmax']) ? 'active' : '' ?>">
+                        <button class="nav-link nav-dropdown-toggle <?= in_array($tab, ['competitors', 'landing', 'pmax', 'internal-links', 'schema']) ? 'active' : '' ?>">
                             <span class="nav-icon">🔧</span>
                             <span class="nav-text">Eszközök</span>
                             <span class="dropdown-arrow">▾</span>
@@ -163,12 +168,14 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                             <a href="?tab=landing" class="<?= $tab === 'landing' ? 'active' : '' ?>">🌐 Landing Elemző</a>
                             <a href="?tab=competitors" class="<?= $tab === 'competitors' ? 'active' : '' ?>">🔍 Versenytárs</a>
                             <a href="?tab=pmax" class="<?= $tab === 'pmax' ? 'active' : '' ?>">📦 PMax</a>
+                            <a href="?tab=internal-links" class="<?= $tab === 'internal-links' ? 'active' : '' ?>">🔗 Belső Linkek</a>
+                            <a href="?tab=schema" class="<?= $tab === 'schema' ? 'active' : '' ?>">📋 Schema.org</a>
                         </div>
                     </div>
                 </nav>
                 
                 <div class="header-right">
-                    <?php if (DEMO_MODE): ?><span class="badge badge-warning">Demo</span><?php endif; ?>
+                    <?php if (Settings::isDemoMode()): ?><span class="badge badge-warning">Demo</span><?php endif; ?>
                     <?php if (Security::isLoggedIn()): ?>
                     <div class="user-dropdown">
                         <button class="user-btn">
@@ -211,6 +218,7 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
             <div class="mobile-nav-group">
                 <div class="mobile-nav-title">📁 Adatok</div>
                 <a href="?tab=clients" class="<?= $tab === 'clients' ? 'active' : '' ?>">Ügyfelek</a>
+                <a href="?tab=headlines" class="<?= $tab === 'headlines' ? 'active' : '' ?>">Szövegbank</a>
                 <a href="?tab=keywords" class="<?= $tab === 'keywords' ? 'active' : '' ?>">Kulcsszavak</a>
                 <a href="?tab=industries" class="<?= $tab === 'industries' ? 'active' : '' ?>">Iparágak</a>
                 <a href="?tab=strategies" class="<?= $tab === 'strategies' ? 'active' : '' ?>">Stratégiák</a>
@@ -605,6 +613,66 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
                             <span>📌 Bevált saját szövegeim (<?= count($savedHeadlines) ?> db)</span>
                         </label>
                         <?php endif; ?>
+                        
+                        <?php 
+                        // Versenytárs spy adatok
+                        $spyScanFile = __DIR__ . '/data/competitor_scans.json';
+                        $spyScansForWizard = [];
+                        if (file_exists($spyScanFile)) {
+                            $spyScansForWizard = json_decode(file_get_contents($spyScanFile), true) ?: [];
+                        }
+                        // Ügyfélhez mentett competitor elemzés
+                        $clientCompData = null;
+                        if (!empty($selectedClientData['competitor_analysis'])) {
+                            $clientCompData = $selectedClientData['competitor_analysis'];
+                        }
+                        
+                        if (!empty($spyScansForWizard) || $clientCompData): 
+                        ?>
+                        <div class="divider"></div>
+                        <p class="help-text">🕵️ Versenytárs adatok:</p>
+                        
+                        <?php if (!empty($spyScansForWizard)): ?>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="use_spy_data" value="1" checked>
+                            <span>🔍 Chrome Spy adatok (<?= count($spyScansForWizard) ?> scan)</span>
+                        </label>
+                        <select name="spy_scan_index" class="form-control" style="margin-left:24px; width:calc(100% - 24px); margin-top:4px; font-size:12px;">
+                            <option value="latest">Legutolsó scan</option>
+                            <?php foreach (array_slice($spyScansForWizard, 0, 10) as $si => $ss): ?>
+                            <option value="<?= $si ?>">
+                                „<?= htmlspecialchars(mb_substr($ss['query'] ?? '', 0, 40)) ?>" 
+                                — <?= $ss['totalAds'] ?? count($ss['ads'] ?? []) ?> hird.
+                                (<?= isset($ss['savedAt']) ? date('m.d H:i', strtotime($ss['savedAt'])) : '' ?>)
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php endif; ?>
+                        
+                        <?php if ($clientCompData): ?>
+                        <label class="checkbox-label" style="margin-top:8px">
+                            <input type="checkbox" name="use_client_competitor" value="1" checked>
+                            <span>📊 Ügyfél versenytárs elemzés</span>
+                        </label>
+                        <?php endif; ?>
+                        
+                        <?php endif; ?>
+                        
+                        <?php
+                        // Jelenlegi kampány adatok
+                        $clientCurrentCampaign = $selectedClientData['current_campaign'] ?? null;
+                        if ($clientCurrentCampaign && empty($clientCurrentCampaign['cleared'])):
+                        ?>
+                        <div class="divider"></div>
+                        <p class="help-text">📊 Korábbi kampány:</p>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="use_current_campaign" value="1" checked>
+                            <span>♻️ Jelenlegi kampányból tanuljon (<?= count($clientCurrentCampaign['ads'] ?? []) ?> hird.)</span>
+                        </label>
+                        <p class="help-text" style="margin-left:24px; font-size:11px;">
+                            Az AI megnézi a régi szövegeidet és hasonló stílusban de jobbat generál
+                        </p>
+                        <?php endif; ?>
                     </div>
                     
                     <div class="card card-tips">
@@ -642,12 +710,29 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
             </span>
         </div>
         
+        <!-- ===== SZERKESZTHETŐ LIVE PREVIEW ===== -->
+        <div class="live-preview-section" style="margin-bottom:20px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                <h4 style="margin:0;">🔍 Google Keresési Előnézet</h4>
+                <div style="display:flex; gap:6px;">
+                    <button class="btn btn-sm" onclick="livePreview.setView('desktop')" id="lpViewDesktop" style="padding:4px 10px; font-size:12px; border:1px solid #dadce0; border-radius:4px; background:#fff7ed; border-color:#ea580c; cursor:pointer;">🖥️ Desktop</button>
+                    <button class="btn btn-sm" onclick="livePreview.setView('mobile')" id="lpViewMobile" style="padding:4px 10px; font-size:12px; border:1px solid #dadce0; border-radius:4px; background:#fff; cursor:pointer;">📱 Mobile</button>
+                    <button class="btn btn-sm" onclick="livePreview.shuffle()" style="padding:4px 10px; font-size:12px; border:1px solid #dadce0; border-radius:4px; background:#fff; cursor:pointer;">🔀 Más kombináció</button>
+                </div>
+            </div>
+            <div id="livePreviewContainer"></div>
+            <p style="font-size:11px; color:#94a3b8; margin-top:8px;">💡 Kattints bármelyik szövegre a szerkesztéshez. Automatikusan mentődik.</p>
+        </div>
+        
         <div class="last-result-content">
             <div class="result-section">
                 <h4>📝 Headlines (<?= count($lastResult['headlines']) ?>)</h4>
-                <div class="copy-list compact scrollable">
-                    <?php foreach ($lastResult['headlines'] as $h): ?>
-                    <div class="copy-item"><span><?= htmlspecialchars($h) ?></span><small><?= mb_strlen($h) ?>/30</small></div>
+                <div class="copy-list compact scrollable" id="headlinesList">
+                    <?php foreach ($lastResult['headlines'] as $i => $h): ?>
+                    <div class="copy-item" data-type="headline" data-index="<?= $i ?>">
+                        <span class="editable-text" contenteditable="false" onclick="this.contentEditable='true'; this.focus();" onblur="livePreview.onItemEdit(this, 'headline', <?= $i ?>)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"><?= htmlspecialchars($h) ?></span>
+                        <small class="char-count"><?= mb_strlen($h) ?>/30</small>
+                    </div>
                     <?php endforeach; ?>
                 </div>
             </div>
@@ -655,9 +740,12 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
             <?php if (!empty($lastResult['descriptions'])): ?>
             <div class="result-section">
                 <h4>📝 Descriptions (<?= count($lastResult['descriptions']) ?>)</h4>
-                <div class="copy-list compact scrollable">
-                    <?php foreach ($lastResult['descriptions'] as $d): ?>
-                    <div class="copy-item"><span><?= htmlspecialchars($d) ?></span><small><?= mb_strlen($d) ?>/90</small></div>
+                <div class="copy-list compact scrollable" id="descriptionsList">
+                    <?php foreach ($lastResult['descriptions'] as $i => $d): ?>
+                    <div class="copy-item" data-type="description" data-index="<?= $i ?>">
+                        <span class="editable-text" contenteditable="false" onclick="this.contentEditable='true'; this.focus();" onblur="livePreview.onItemEdit(this, 'description', <?= $i ?>)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"><?= htmlspecialchars($d) ?></span>
+                        <small class="char-count"><?= mb_strlen($d) ?>/90</small>
+                    </div>
                     <?php endforeach; ?>
                 </div>
             </div>
@@ -692,6 +780,7 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
             <button class="btn btn-secondary" onclick="copyAllHeadlines()">📋 Headlines</button>
             <button class="btn btn-secondary" onclick="copyAllDescriptions()">📋 Descriptions</button>
             <button class="btn btn-success" onclick="showSaveToClientModal()">💾 Mentés Ügyfélhez</button>
+            <button class="btn btn-secondary" onclick="exportGoogleAdsEditor()" style="background:#4285f4; color:white; border-color:#4285f4;">📥 Google Ads Editor Export</button>
             <a href="?tab=publish" class="btn btn-secondary">📤 Közzététel</a>
             <button class="btn btn-primary" onclick="document.getElementById('generateBtn').scrollIntoView({behavior:'smooth'}); document.getElementById('generateBtn').classList.add('pulse');">🔄 Új Generálás</button>
         </div>
@@ -708,6 +797,254 @@ $currentGoal = $wizard['goal'] ? $goals[$wizard['goal']] : null;
     function copyAllDescriptions() {
         const descriptions = <?= json_encode($lastResult['descriptions'] ?? []) ?>;
         navigator.clipboard.writeText(descriptions.join('\n')).then(() => alert('✅ Descriptions másolva!'));
+    }
+    
+    // ========================================
+    // SZERKESZTHETŐ LIVE PREVIEW
+    // ========================================
+    const livePreview = {
+        headlines: <?= json_encode($lastResult['headlines']) ?>,
+        descriptions: <?= json_encode($lastResult['descriptions'] ?? []) ?>,
+        url: '<?= addslashes($lastResult['url'] ?? $lastResult['company'] ?? 'example.com') ?>',
+        currentView: 'desktop',
+        currentHs: [],
+        currentDs: [],
+        saveTimeout: null,
+        
+        init() {
+            this.shuffle();
+        },
+        
+        shuffle() {
+            const shuffledH = [...this.headlines].sort(() => Math.random() - 0.5);
+            const shuffledD = [...this.descriptions].sort(() => Math.random() - 0.5);
+            this.currentHs = shuffledH.slice(0, Math.min(3, shuffledH.length));
+            this.currentDs = shuffledD.slice(0, Math.min(2, shuffledD.length));
+            this.render();
+        },
+        
+        setView(view) {
+            this.currentView = view;
+            document.getElementById('lpViewDesktop').style.background = view === 'desktop' ? '#fff7ed' : '#fff';
+            document.getElementById('lpViewDesktop').style.borderColor = view === 'desktop' ? '#ea580c' : '#dadce0';
+            document.getElementById('lpViewMobile').style.background = view === 'mobile' ? '#fff7ed' : '#fff';
+            document.getElementById('lpViewMobile').style.borderColor = view === 'mobile' ? '#ea580c' : '#dadce0';
+            this.render();
+        },
+        
+        render() {
+            const container = document.getElementById('livePreviewContainer');
+            if (!container) return;
+            
+            const isMobile = this.currentView === 'mobile';
+            const displayUrl = this.url.replace(/^https?:\/\//, '').split('/')[0];
+            
+            container.innerHTML = `
+                <div style="background:#fff; border:1px solid #dadce0; border-radius:8px; padding:16px; max-width:${isMobile ? '360px' : '600px'}; font-family:Arial,sans-serif;">
+                    <div style="font-size:12px; margin-bottom:2px;">
+                        <span style="background:#f1f3f4; color:#202124; font-size:11px; padding:1px 6px; border-radius:3px; font-weight:700;">Szponzorált</span>
+                    </div>
+                    <div style="font-size:14px; color:#202124; margin-bottom:4px; display:flex; align-items:center; gap:4px;">
+                        <span style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:#e8eaed; font-size:10px;">🌐</span>
+                        <span>${this.esc(displayUrl)}</span>
+                    </div>
+                    <div class="lp-title" style="font-size:${isMobile ? '16' : '20'}px; color:#1a0dab; line-height:1.3; margin-bottom:4px; cursor:text;">
+                        ${this.currentHs.map((h, i) => 
+                            `<span class="lp-editable-headline" contenteditable="true" data-idx="${i}" style="outline:none; border-bottom:1px dashed transparent;" onfocus="this.style.borderColor='#1a0dab'; this.style.background='#e8f0fe'" onblur="this.style.borderColor='transparent'; this.style.background='none'; livePreview.onPreviewEdit(this, 'headline', ${i})">${this.esc(h)}</span>${i < this.currentHs.length - 1 ? ' <span style="color:#5f6368;">|</span> ' : ''}`
+                        ).join('')}
+                    </div>
+                    <div class="lp-desc" style="font-size:${isMobile ? '13' : '14'}px; color:#4d5156; line-height:1.5; cursor:text;">
+                        ${this.currentDs.map((d, i) => 
+                            `<span class="lp-editable-desc" contenteditable="true" data-idx="${i}" style="outline:none; border-bottom:1px dashed transparent;" onfocus="this.style.borderColor='#4d5156'; this.style.background='#f8f9fa'" onblur="this.style.borderColor='transparent'; this.style.background='none'; livePreview.onPreviewEdit(this, 'description', ${i})">${this.esc(d)}</span>${i < this.currentDs.length - 1 ? ' ' : ''}`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+        },
+        
+        onPreviewEdit(el, type, previewIdx) {
+            const newText = el.textContent.trim();
+            if (!newText) return;
+            
+            // Megkeressük az eredeti indexet a fő tömbben
+            const originalText = type === 'headline' ? this.currentHs[previewIdx] : this.currentDs[previewIdx];
+            const mainArray = type === 'headline' ? this.headlines : this.descriptions;
+            const mainIdx = mainArray.indexOf(originalText);
+            
+            if (mainIdx !== -1 && mainArray[mainIdx] !== newText) {
+                mainArray[mainIdx] = newText;
+                if (type === 'headline') {
+                    this.currentHs[previewIdx] = newText;
+                } else {
+                    this.currentDs[previewIdx] = newText;
+                }
+                this.updateListItem(type, mainIdx, newText);
+                this.autoSave();
+                this.showSaved();
+            }
+        },
+        
+        onItemEdit(el, type, idx) {
+            el.contentEditable = 'false';
+            const newText = el.textContent.trim();
+            const mainArray = type === 'headline' ? this.headlines : this.descriptions;
+            
+            if (mainArray[idx] !== newText) {
+                mainArray[idx] = newText;
+                // Frissítjük a char count-ot
+                const maxLen = type === 'headline' ? 30 : 90;
+                const countEl = el.parentElement.querySelector('.char-count');
+                if (countEl) {
+                    countEl.textContent = newText.length + '/' + maxLen;
+                    countEl.style.color = newText.length > maxLen ? '#dc2626' : '';
+                }
+                this.autoSave();
+                this.showSaved();
+            }
+        },
+        
+        updateListItem(type, idx, newText) {
+            const list = type === 'headline' ? 'headlinesList' : 'descriptionsList';
+            const container = document.getElementById(list);
+            if (!container) return;
+            
+            const items = container.querySelectorAll('.copy-item');
+            if (items[idx]) {
+                const span = items[idx].querySelector('.editable-text');
+                if (span && span.textContent !== newText) {
+                    span.textContent = newText;
+                }
+                const maxLen = type === 'headline' ? 30 : 90;
+                const countEl = items[idx].querySelector('.char-count');
+                if (countEl) {
+                    countEl.textContent = newText.length + '/' + maxLen;
+                    countEl.style.color = newText.length > maxLen ? '#dc2626' : '';
+                }
+            }
+        },
+        
+        autoSave() {
+            clearTimeout(this.saveTimeout);
+            this.saveTimeout = setTimeout(() => {
+                // Frissítjük a lastResultData-t
+                if (window.lastResultData) {
+                    window.lastResultData.headlines = [...this.headlines];
+                    window.lastResultData.descriptions = [...this.descriptions];
+                }
+                lastResultData = window.lastResultData;
+                
+                // Mentés a szerverre
+                const form = new FormData();
+                form.append('action', 'save_edited_generation');
+                form.append('headlines', JSON.stringify(this.headlines));
+                form.append('descriptions', JSON.stringify(this.descriptions));
+                form.append('csrf_token', window.csrfToken);
+                
+                fetch('api.php', { method: 'POST', body: form })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (!data.success) console.warn('Mentés hiba:', data.error);
+                    })
+                    .catch(err => console.warn('Mentés hiba:', err));
+            }, 1000);
+        },
+        
+        showSaved() {
+            // Rövid "Mentve" jelzés
+            let indicator = document.getElementById('lpSavedIndicator');
+            if (!indicator) {
+                indicator = document.createElement('span');
+                indicator.id = 'lpSavedIndicator';
+                indicator.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#22c55e; color:white; padding:8px 16px; border-radius:8px; font-size:14px; z-index:9999; transition:opacity 0.3s;';
+                document.body.appendChild(indicator);
+            }
+            indicator.textContent = '✅ Módosítás mentve';
+            indicator.style.opacity = '1';
+            setTimeout(() => { indicator.style.opacity = '0'; }, 2000);
+        },
+        
+        esc(str) {
+            const div = document.createElement('div');
+            div.textContent = str || '';
+            return div.innerHTML;
+        }
+    };
+    
+    livePreview.init();
+    
+    // ========================================
+    // GOOGLE ADS EDITOR CSV EXPORT
+    // ========================================
+    function exportGoogleAdsEditor() {
+        const data = window.lastResultData || lastResultData;
+        if (!data) {
+            alert('❌ Nincs generált kampány!');
+            return;
+        }
+        
+        const company = data.company || 'Kampány';
+        const headlines = data.headlines || [];
+        const descriptions = data.descriptions || [];
+        const keywords = (data.keywords || []).map(k => typeof k === 'object' ? k.keyword : k);
+        const url = data.url || data.landingPage || 'https://example.com';
+        
+        // Campaign és Ad Group nevek
+        const campaignName = company + ' - Search';
+        const adGroupName = company + ' - Általános';
+        
+        // ====== 1. RSA hirdetés sorok ======
+        // Google Ads Editor RSA formátum oszlopai
+        const rsaHeaders = [
+            'Campaign', 'Ad Group', 'Ad type',
+            'Headline 1', 'Headline 2', 'Headline 3', 'Headline 4', 'Headline 5',
+            'Headline 6', 'Headline 7', 'Headline 8', 'Headline 9', 'Headline 10',
+            'Headline 11', 'Headline 12', 'Headline 13', 'Headline 14', 'Headline 15',
+            'Description 1', 'Description 2', 'Description 3', 'Description 4',
+            'Final URL', 'Path 1', 'Path 2', 'Status'
+        ];
+        
+        // RSA sor: egy hirdetés az összes headline-nal és description-nel
+        const rsaRow = [campaignName, adGroupName, 'Responsive search ad'];
+        // Max 15 headline
+        for (let i = 0; i < 15; i++) {
+            rsaRow.push(headlines[i] || '');
+        }
+        // Max 4 description
+        for (let i = 0; i < 4; i++) {
+            rsaRow.push(descriptions[i] || '');
+        }
+        rsaRow.push(url, '', '', 'Enabled');
+        
+        // ====== 2. Kulcsszó sorok ======
+        const kwHeaders = ['Campaign', 'Ad Group', 'Keyword', 'Match Type', 'Max CPC', 'Status'];
+        const kwRows = keywords.map(kw => [campaignName, adGroupName, kw, 'Broad', '', 'Enabled']);
+        
+        // ====== CSV összeállítás ======
+        let csv = '// Google Ads Editor - AdMaster Pro Export\n';
+        csv += '// Importálás: Google Ads Editor → Fiók → Importálás → CSV fájlból\n';
+        csv += '// Dátum: ' + new Date().toLocaleString('hu-HU') + '\n\n';
+        
+        // RSA szekció
+        csv += rsaHeaders.map(h => '"' + h + '"').join(',') + '\n';
+        csv += rsaRow.map(v => '"' + (v || '').replace(/"/g, '""') + '"').join(',') + '\n';
+        csv += '\n';
+        
+        // Kulcsszó szekció
+        csv += kwHeaders.map(h => '"' + h + '"').join(',') + '\n';
+        kwRows.forEach(row => {
+            csv += row.map(v => '"' + (v || '').replace(/"/g, '""') + '"').join(',') + '\n';
+        });
+        
+        // Letöltés
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+        const link = document.createElement('a');
+        const filename = company.replace(/[^a-zA-Z0-9áéíóöőúüűÁÉÍÓÖŐÚÜŰ\s]/g, '').replace(/\s+/g, '_');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'GoogleAdsEditor_' + filename + '_' + new Date().toISOString().slice(0,10) + '.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        
+        alert('✅ Google Ads Editor CSV letöltve!\n\nImportálás:\n1. Nyisd meg a Google Ads Editor-t\n2. Fiók → Importálás → CSV fájlból\n3. Válaszd ki a letöltött fájlt');
     }
     </script>
     <?php endif; ?>
@@ -1238,7 +1575,14 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
                     </div>
                     <div class="profile-actions">
                         <a href="?tab=wizard&client=<?= $selectedClientData['id'] ?>&industry=<?= $selectedClientData['industry'] ?>" class="btn btn-primary">🚀 Új Kampány</a>
-                        <button class="btn btn-secondary" onclick="editClient('<?= $selectedClientData['id'] ?>')">✏️ Szerkesztés</button>
+                        <button class="btn btn-secondary" onclick="editClient(this)" 
+                            data-id="<?= $selectedClientData['id'] ?>"
+                            data-name="<?= htmlspecialchars($selectedClientData['name'] ?? '') ?>"
+                            data-industry="<?= htmlspecialchars($selectedClientData['industry'] ?? '') ?>"
+                            data-phone="<?= htmlspecialchars($selectedClientData['phone'] ?? '') ?>"
+                            data-area="<?= htmlspecialchars($selectedClientData['area'] ?? 'budapest') ?>"
+                            data-website="<?= htmlspecialchars($selectedClientData['website'] ?? '') ?>"
+                        >✏️ Szerkesztés</button>
                         <button class="btn btn-danger" onclick="deleteClient('<?= $selectedClientData['id'] ?>')">🗑️</button>
                     </div>
                 </div>
@@ -1278,8 +1622,96 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
                 <!-- Tab navigation -->
                 <div class="client-tabs">
                     <button class="client-tab active" onclick="showClientSection('generations')">📝 Generálások</button>
+                    <button class="client-tab" onclick="showClientSection('current')">📊 Jelenlegi Kampány</button>
                     <button class="client-tab" onclick="showClientSection('audits')">🔍 Landing Auditok</button>
                     <button class="client-tab" onclick="showClientSection('history')">📜 Változáskövetés</button>
+                </div>
+                
+                <!-- Jelenlegi kampány (importált/Google Ads-ból lehúzott) -->
+                <div class="client-section" id="section-current">
+                    <?php $currentCampaign = $selectedClientData['current_campaign'] ?? null; ?>
+                    <?php if ($currentCampaign): ?>
+                    <div style="background:var(--bg); border-radius:10px; padding:16px; margin-bottom:16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h4>📊 Mentett Kampány Adatok</h4>
+                            <span class="help-text">
+                                <?= $currentCampaign['source'] ?? 'ismeretlen' ?> | 
+                                <?= $currentCampaign['date'] ?? '' ?>
+                            </span>
+                        </div>
+                        
+                        <?php if (!empty($currentCampaign['ads'])): ?>
+                        <h5 style="margin-bottom:8px">📝 Hirdetések (<?= count($currentCampaign['ads']) ?>)</h5>
+                        <?php foreach ($currentCampaign['ads'] as $cAd): ?>
+                        <div style="background:white; padding:10px 14px; border-radius:8px; margin-bottom:8px; border-left:3px solid var(--orange);">
+                            <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">
+                                <?= htmlspecialchars($cAd['campaign'] ?? '') ?> › <?= htmlspecialchars($cAd['ad_group'] ?? '') ?>
+                            </div>
+                            <?php if (!empty($cAd['headlines'])): ?>
+                            <div style="font-weight:600; color:#1a0dab; margin-bottom:4px;">
+                                <?= htmlspecialchars(implode(' | ', array_slice($cAd['headlines'], 0, 3))) ?>
+                            </div>
+                            <?php if (count($cAd['headlines']) > 3): ?>
+                            <div style="font-size:12px; color:var(--text-muted);">
+                                +<?= count($cAd['headlines']) - 3 ?> további headline: <?= htmlspecialchars(implode(', ', array_slice($cAd['headlines'], 3))) ?>
+                            </div>
+                            <?php endif; ?>
+                            <?php endif; ?>
+                            <?php if (!empty($cAd['descriptions'])): ?>
+                            <div style="font-size:13px; color:var(--text-light); margin-top:4px;">
+                                <?= htmlspecialchars(implode(' | ', $cAd['descriptions'])) ?>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                        
+                        <?php if (!empty($currentCampaign['keywords'])): ?>
+                        <h5 style="margin-top:16px; margin-bottom:8px">🔤 Kulcsszavak (<?= count($currentCampaign['keywords']) ?>)</h5>
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                            <?php foreach ($currentCampaign['keywords'] as $cKw): ?>
+                            <span class="tag"><?= htmlspecialchars($cKw['text'] ?? '') ?> <small>(<?= $cKw['match_type'] ?? '' ?>)</small></span>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <div style="margin-top:16px; text-align:center;">
+                            <a href="?tab=wizard&client=<?= $selectedClientData['id'] ?>&industry=<?= $selectedClientData['industry'] ?>" class="btn btn-primary">
+                                🚀 Új kampány generálás (ezek alapján)
+                            </a>
+                            <button class="btn btn-danger btn-sm" style="margin-left:8px" onclick="clearCurrentCampaign('<?= $selectedClientData['id'] ?>')">🗑️ Törlés</button>
+                        </div>
+                    </div>
+                    <?php else: ?>
+                    <div class="empty-state small" style="margin-bottom:16px">
+                        <p>Nincs mentett kampány adat.</p>
+                        <p class="help-text" style="margin-top:8px">
+                            Importálj alább kézzel, vagy a <a href="?tab=gads">📊 Google Ads Sync</a> fülön rendeld ügyfélhez a Chrome bővítménnyel leszívott kampányt.
+                        </p>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <!-- Kézi import -->
+                    <div style="background:var(--bg); border-radius:10px; padding:16px;">
+                        <h4 style="margin-bottom:12px">📋 Kézi Kampány Import</h4>
+                        <p class="help-text" style="margin-bottom:12px">Másold be a jelenlegi hirdetéseid szövegét — a generátor ebből is tanul</p>
+                        
+                        <div class="form-group">
+                            <label>Headlines (soronként egy)</label>
+                            <textarea id="importHeadlines_<?= $selectedClientData['id'] ?>" class="form-control" rows="4" placeholder="Duguláselhárítás 0-24&#10;30 Perc Kiszállás&#10;Fix Árak Garanciával"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Descriptions (soronként egy)</label>
+                            <textarea id="importDescs_<?= $selectedClientData['id'] ?>" class="form-control" rows="3" placeholder="Azonnali kiszállás Budapesten. 15 éves tapasztalat..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Kulcsszavak (soronként egy, opcionális)</label>
+                            <textarea id="importKws_<?= $selectedClientData['id'] ?>" class="form-control" rows="3" placeholder="duguláselhárítás&#10;duguláselhárítás budapest&#10;csőtörés javítás"></textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="importManualCampaign('<?= $selectedClientData['id'] ?>')">
+                            💾 Kampány Mentése
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- Generálások -->
@@ -1475,14 +1907,16 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
     </section>
     
     <!-- Generálás részletek modal -->
-    <div class="modal" id="generationModal">
-        <div class="modal-content modal-lg">
-            <div class="modal-header">
-                <h3>📝 Generálás Részletei</h3>
-                <button class="modal-close" onclick="hideModal('generationModal')">&times;</button>
-            </div>
-            <div class="modal-body" id="generationModalContent">
-                <!-- JS-sel töltjük -->
+    <div class="modal-overlay hidden" id="generationModal">
+        <div class="modal">
+            <div class="modal-content modal-lg">
+                <div class="modal-header">
+                    <h3>📝 Generálás Részletei</h3>
+                    <button class="modal-close" onclick="hideModal('generationModal')">&times;</button>
+                </div>
+                <div class="modal-body" id="generationModalContent">
+                    <!-- JS-sel töltjük -->
+                </div>
             </div>
         </div>
     </div>
@@ -1503,6 +1937,61 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
         document.querySelectorAll('.client-section').forEach(s => s.classList.remove('active'));
         event.target.classList.add('active');
         document.getElementById('section-' + section).classList.add('active');
+    }
+    
+    // Kézi kampány import
+    function importManualCampaign(clientId) {
+        const headlines = document.getElementById('importHeadlines_' + clientId)?.value.split('\n').filter(l => l.trim()) || [];
+        const descriptions = document.getElementById('importDescs_' + clientId)?.value.split('\n').filter(l => l.trim()) || [];
+        const keywords = document.getElementById('importKws_' + clientId)?.value.split('\n').filter(l => l.trim()) || [];
+        
+        if (headlines.length === 0 && descriptions.length === 0) {
+            alert('Adj meg legalább headline-okat vagy description-öket!');
+            return;
+        }
+        
+        const campaignData = {
+            source: 'manual_import',
+            date: new Date().toISOString().slice(0,16).replace('T',' '),
+            ads: [{
+                headlines: headlines,
+                descriptions: descriptions,
+                type: 'MANUAL',
+                campaign: 'Importált kampány',
+                ad_group: 'Importált',
+                metrics: {}
+            }],
+            keywords: keywords.map(k => ({ text: k.trim(), match_type: 'BROAD', quality_score: null, metrics: {} }))
+        };
+        
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=save_current_campaign&client_id=${encodeURIComponent(clientId)}&campaign_data=${encodeURIComponent(JSON.stringify(campaignData))}&csrf_token=${encodeURIComponent(getCsrfToken())}`
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.message);
+                location.reload();
+            } else {
+                alert('❌ ' + (data.error || 'Hiba'));
+            }
+        })
+        .catch(err => alert('❌ ' + err.message));
+    }
+    
+    // Jelenlegi kampány törlése
+    function clearCurrentCampaign(clientId) {
+        if (!confirm('Biztosan törlöd a mentett kampány adatokat?')) return;
+        
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=save_current_campaign&client_id=${encodeURIComponent(clientId)}&campaign_data=${encodeURIComponent('{"cleared":true}')}&csrf_token=${encodeURIComponent(getCsrfToken())}`
+        })
+        .then(r => r.json())
+        .then(() => location.reload());
     }
     
     // Generálás megtekintése
@@ -1696,50 +2185,97 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
     </script>
 
     <!-- Új ügyfél modal -->
-    <div id="newClientModal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Új Ügyfél</h3>
-                <button class="modal-close" onclick="hideModal('newClientModal')">×</button>
+    <div id="newClientModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Új Ügyfél</h3>
+                    <button class="modal-close" onclick="hideModal('newClientModal')">×</button>
+                </div>
+                <form id="newClientForm" onsubmit="return submitNewClient(event)">
+                    <div class="form-group">
+                        <label>Cégnév *</label>
+                        <input type="text" name="name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Iparág *</label>
+                        <select name="industry" class="form-control" required>
+                            <?php foreach ($industries as $key => $ind): ?>
+                            <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Telefon</label>
+                        <input type="tel" name="phone" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Terület</label>
+                        <select name="area" class="form-control">
+                            <option value="budapest">Budapest</option>
+                            <option value="videk">Vidék</option>
+                            <option value="orszagos">Országos</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Weboldal</label>
+                        <input type="url" name="website" class="form-control">
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('newClientModal')">Mégse</button>
+                        <button type="submit" class="btn btn-primary">💾 Mentés</button>
+                    </div>
+                </form>
             </div>
-            <form method="POST" action="api.php" id="newClientForm">
-                <?= Security::csrfField() ?>
-                <input type="hidden" name="action" value="save_client">
-                
-                <div class="form-group">
-                    <label>Cégnév *</label>
-                    <input type="text" name="name" class="form-control" required>
+        </div>
+    </div>
+    
+    <!-- ÜGYFÉL SZERKESZTÉS MODAL -->
+    <div id="editClientModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>✏️ Ügyfél Szerkesztése</h3>
+                    <button class="modal-close" onclick="hideModal('editClientModal')">×</button>
                 </div>
-                <div class="form-group">
-                    <label>Iparág *</label>
-                    <select name="industry" class="form-control" required>
-                        <?php foreach ($industries as $key => $ind): ?>
-                        <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Telefon</label>
-                    <input type="tel" name="phone" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label>Terület</label>
-                    <select name="area" class="form-control">
-                        <option value="budapest">Budapest</option>
-                        <option value="videk">Vidék</option>
-                        <option value="orszagos">Országos</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Weboldal</label>
-                    <input type="url" name="website" class="form-control">
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="hideModal('newClientModal')">Mégse</button>
-                    <button type="submit" class="btn btn-primary">Mentés</button>
-                </div>
-            </form>
+                <form id="editClientForm" onsubmit="return submitEditClient(event)">
+                    <input type="hidden" name="id" id="editClientId">
+                    <div class="form-group">
+                        <label>Cégnév *</label>
+                        <input type="text" name="name" id="editClientName" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Iparág *</label>
+                        <select name="industry" id="editClientIndustry" class="form-control" required>
+                            <?php foreach ($industries as $key => $ind): ?>
+                            <option value="<?= $key ?>"><?= $ind['icon'] ?> <?= $ind['name'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Telefon</label>
+                        <input type="tel" name="phone" id="editClientPhone" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Terület</label>
+                        <select name="area" id="editClientArea" class="form-control">
+                            <option value="budapest">Budapest</option>
+                            <option value="videk">Vidék</option>
+                            <option value="orszagos">Országos</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Weboldal</label>
+                        <input type="url" name="website" id="editClientWebsite" class="form-control">
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('editClientModal')">Mégse</button>
+                        <button type="submit" class="btn btn-primary">💾 Mentés</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -1825,15 +2361,14 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
     </section>
 
     <!-- Új headline modal -->
-    <div id="newHeadlineModal" class="modal hidden">
+    <div id="newHeadlineModal" class="modal-overlay hidden">
+        <div class="modal">
         <div class="modal-content">
             <div class="modal-header">
                 <h3>Új Bevált Szöveg</h3>
                 <button class="modal-close" onclick="hideModal('newHeadlineModal')">×</button>
             </div>
-            <form method="POST" action="api.php" id="newHeadlineForm">
-                <?= Security::csrfField() ?>
-                <input type="hidden" name="action" value="save_headline">
+            <form id="newHeadlineForm" onsubmit="return submitNewHeadline(event)">
                 
                 <div class="form-group">
                     <label>Típus</label>
@@ -1868,9 +2403,10 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
                 
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="hideModal('newHeadlineModal')">Mégse</button>
-                    <button type="submit" class="btn btn-primary">Mentés</button>
+                    <button type="submit" class="btn btn-primary">💾 Mentés</button>
                 </div>
             </form>
+        </div>
         </div>
     </div>
 
@@ -1894,7 +2430,7 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
                     <h3 class="card-title">✅ Működő Kulcsszavak</h3>
                     <p class="help-text">Add hozzá a jól teljesítő kulcsszavaidat. Ezeket használjuk a generálásnál.</p>
                     
-                    <form method="POST" action="api.php" class="keyword-form">
+                    <form class="keyword-form" onsubmit="return submitKeywordForm(this, event)">
                         <?= Security::csrfField() ?>
                         <input type="hidden" name="action" value="save_keywords">
                         <input type="hidden" name="type" value="positive">
@@ -1956,7 +2492,7 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
                     <h3 class="card-title">🚫 Negatív Kulcsszavak</h3>
                     <p class="help-text">Ezeket mindig kizárjuk a kampányokból. AI elemzi és figyelmeztet a hibákra.</p>
                     
-                    <form method="POST" action="api.php" class="keyword-form">
+                    <form class="keyword-form" onsubmit="return submitKeywordForm(this, event)">
                         <?= Security::csrfField() ?>
                         <input type="hidden" name="action" value="save_keywords">
                         <input type="hidden" name="type" value="negative">
@@ -2188,7 +2724,7 @@ $selectedClientData = $selectedClientId ? ($clients[$selectedClientId] ?? null) 
                 
                 <button type="submit" class="btn btn-primary" id="competitorBtn">🔍 Versenytársak Elemzése</button>
                 
-                <?php if (empty(SERPAPI_KEY)): ?>
+                <?php if (!Settings::isConfigured('serpapi_key')): ?>
                 <p class="help-text" style="margin-top:12px">⚠️ SerpApi kulcs nincs beállítva - kézi bevitel módban működik</p>
                 <?php endif; ?>
             </form>
@@ -2233,6 +2769,82 @@ Hirdetés 2:
         </div>
         
         <div id="competitorResults"></div>
+        
+        <!-- Chrome bővítmény által gyűjtött scan-ek -->
+        <?php
+        $scanFile = __DIR__ . '/data/competitor_scans.json';
+        $spyScans = [];
+        if (file_exists($scanFile)) {
+            $spyScans = json_decode(file_get_contents($scanFile), true) ?: [];
+        }
+        ?>
+        <?php if (!empty($spyScans)): ?>
+        <div class="card" style="margin-top:20px">
+            <div class="section-header" style="margin-bottom:16px">
+                <h3 class="card-title">🕵️ Chrome Spy - Begyűjtött Hirdetések (<?= count($spyScans) ?>)</h3>
+                <button class="btn btn-sm btn-secondary" onclick="document.getElementById('spyScansContainer').classList.toggle('hidden')">👁️ Mutat/Elrejt</button>
+            </div>
+            <p class="help-text" style="margin-bottom:16px">A Chrome bővítmény SERP Spy funkciójával gyűjtött versenytárs hirdetések</p>
+            
+            <div id="spyScansContainer">
+            <?php foreach (array_slice($spyScans, 0, 20) as $scan): ?>
+                <div class="spy-scan-item" style="border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; background: var(--bg);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <div>
+                            <strong style="font-size:15px;">🔎 „<?= htmlspecialchars($scan['query'] ?? '') ?>"</strong>
+                            <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">
+                                <?= $scan['totalAds'] ?? count($scan['ads'] ?? []) ?> hirdetés
+                            </span>
+                        </div>
+                        <span style="font-size:12px; color:var(--text-muted);">
+                            <?= isset($scan['savedAt']) ? date('Y.m.d H:i', strtotime($scan['savedAt'])) : '' ?>
+                        </span>
+                    </div>
+                    
+                    <?php foreach (($scan['ads'] ?? []) as $i => $ad): ?>
+                    <div style="padding:10px 14px; background:white; border-radius:8px; margin-bottom:8px; border-left:3px solid <?= $i === 0 ? 'var(--orange)' : 'var(--border)' ?>;">
+                        <div style="font-size:14px; font-weight:600; color:#1a0dab; margin-bottom:2px;">
+                            <?= htmlspecialchars($ad['headline'] ?? '') ?>
+                        </div>
+                        <?php if (!empty($ad['displayUrl'])): ?>
+                        <div style="font-size:12px; color:#006621; margin-bottom:4px;">
+                            <?= htmlspecialchars($ad['displayUrl']) ?>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($ad['description'])): ?>
+                        <div style="font-size:13px; color:var(--text-light);">
+                            <?= htmlspecialchars($ad['description']) ?>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($ad['sitelinks'])): ?>
+                        <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">
+                            <?php foreach ($ad['sitelinks'] as $sl): ?>
+                            <span style="font-size:11px; background:var(--bg); padding:2px 8px; border-radius:4px; color:var(--blue);">
+                                <?= htmlspecialchars($sl) ?>
+                            </span>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                    
+                    <div style="margin-top:10px; display:flex; gap:8px;">
+                        <button class="btn btn-sm btn-primary" onclick="analyzeSpyScan(this, '<?= htmlspecialchars(addslashes($scan['query'] ?? '')) ?>', <?= (int)($scan['totalAds'] ?? 0) ?>)" data-scan-index="<?= array_search($scan, $spyScans) ?>">
+                            🧠 AI Elemzés
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="copySpyScan(this)" data-ads='<?= htmlspecialchars(json_encode($scan['ads'] ?? []), ENT_QUOTES) ?>'>
+                            📋 Másolás
+                        </button>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+            
+            <?php if (count($spyScans) > 20): ?>
+            <p class="help-text">Összesen <?= count($spyScans) ?> scan, az utolsó 20 megjelenítve.</p>
+            <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
     </section>
 
 <?php elseif ($tab === 'landing'): ?>
@@ -2509,15 +3121,14 @@ Hirdetés 2:
     </section>
 
     <!-- Új iparág modal -->
-    <div id="newIndustryModal" class="modal hidden">
+    <div id="newIndustryModal" class="modal-overlay hidden">
+        <div class="modal">
         <div class="modal-content modal-lg">
             <div class="modal-header">
                 <h3>🏭 Új Iparág Létrehozása (AI)</h3>
                 <button class="modal-close" onclick="hideModal('newIndustryModal')">×</button>
             </div>
-            <form method="POST" action="api.php" id="newIndustryForm">
-                <?= Security::csrfField() ?>
-                <input type="hidden" name="action" value="generate_industry">
+            <form id="newIndustryForm" onsubmit="return submitNewIndustry(event)">
                 
                 <div class="form-group">
                     <label>Iparág neve *</label>
@@ -2542,7 +3153,352 @@ Hirdetés 2:
                 </div>
             </form>
         </div>
+        </div>
     </div>
+
+<?php elseif ($tab === 'internal-links'): ?>
+<!-- ==================== SITELINK EXTENSION GENERÁTOR TAB ==================== -->
+    <section class="page-section">
+        <div class="section-header">
+            <h2>🔗 Sitelink Extension Generátor</h2>
+            <p class="section-subtitle">Google Ads webhelyhivatkozások (sitelink) generálása a hirdetéseidhez</p>
+        </div>
+        
+        <div class="tools-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+            <!-- Bal: Form -->
+            <div class="card">
+                <h3 class="card-title">🏢 Cég Adatok</h3>
+                <form id="sitelinkForm" onsubmit="return generateSitelinks(event)">
+                    <div class="form-group">
+                        <label>Cégnév *</label>
+                        <input type="text" name="company_name" class="form-control" required 
+                               placeholder="SOS Vízszerelés Bp">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Weboldal URL *</label>
+                        <input type="url" name="website_url" class="form-control" required 
+                               placeholder="https://sosvizszerelesbp.hu">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Iparág *</label>
+                        <select name="industry" class="form-control" required>
+                            <option value="">-- Válassz --</option>
+                            <?php foreach ($industries as $key => $ind): ?>
+                            <option value="<?= $key ?>"><?= $ind['name'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Telefonszám (opcionális)</label>
+                        <input type="tel" name="phone" class="form-control" 
+                               placeholder="+36 1 234 5678">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Fő szolgáltatások / oldalak (soronként egy)</label>
+                        <textarea name="services" class="form-control" rows="4" 
+                                  placeholder="Vízvezeték szerelés&#10;Csőtörés javítás&#10;Duguláselhárítás&#10;Kazán szerelés&#10;Árajánlat"></textarea>
+                        <p class="help-text">Ha megadod, ezekhez generálunk sitelinkeket. Ha üresen hagyod, az AI javasol.</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Hány sitelink kell?</label>
+                        <select name="count" class="form-control">
+                            <option value="4">4 db (minimum ajánlott)</option>
+                            <option value="6" selected>6 db (optimális)</option>
+                            <option value="8">8 db (maximum)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Stílus</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="radio" name="style" value="action" checked>
+                                <span>🎯 Cselekvésre ösztönző (Kérjen Árajánlatot!)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="style" value="info">
+                                <span>📋 Informatív (Szolgáltatásaink)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="radio" name="style" value="mixed">
+                                <span>🔀 Vegyes</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-lg" style="width:100%">
+                        🔗 Sitelink-ek Generálása
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Jobb: Infó + Preview -->
+            <div>
+                <div class="card card-tips">
+                    <h3 class="card-title">📏 Karakterlimitek</h3>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+                        <div style="background:var(--bg); padding:12px; border-radius:8px; text-align:center;">
+                            <div style="font-size:24px; font-weight:700; color:var(--orange);">25</div>
+                            <div style="font-size:12px; color:var(--text-muted);">Link szöveg</div>
+                        </div>
+                        <div style="background:var(--bg); padding:12px; border-radius:8px; text-align:center;">
+                            <div style="font-size:24px; font-weight:700; color:var(--blue);">35</div>
+                            <div style="font-size:12px; color:var(--text-muted);">Leírás soronként</div>
+                        </div>
+                    </div>
+                    <ul style="font-size:13px; line-height:1.7;">
+                        <li><strong>Minimum 2 sitelink</strong> kell a megjelenéshez</li>
+                        <li><strong>4-6 sitelink</strong> az optimális a jobb láthatóságért</li>
+                        <li>A leírás nem mindig jelenik meg (csak desktopon, ha van hely)</li>
+                        <li>Minden sitelinknek <strong>egyedi URL-re</strong> kell mutatnia</li>
+                    </ul>
+                </div>
+                
+                <div class="card" style="margin-top:16px;">
+                    <h3 class="card-title">💡 Tippek a jó sitelinkekhez</h3>
+                    <div style="font-size:13px; line-height:1.7;">
+                        <p>✅ <strong>Specifikus</strong> — "Áraink" helyett "Vízszerelés Árak"</p>
+                        <p>✅ <strong>Cselekvésre ösztönző</strong> — "Kérjen Ajánlatot!", "Hívjon Most!"</p>
+                        <p>✅ <strong>Egyedi érték</strong> — "0-24 Ügyelet", "Ingyenes Kiszállás"</p>
+                        <p>✅ <strong>Releváns</strong> — A hirdetéshez kapcsolódó oldalak</p>
+                        <p>❌ <strong>Kerüld</strong> — Általános szövegek mint "Főoldal", "Rólunk"</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Eredmények -->
+        <div id="sitelinkResults" style="margin-top:24px;"></div>
+    </section>
+    
+    <script>
+    async function generateSitelinks(e) {
+        e.preventDefault();
+        const form = document.getElementById('sitelinkForm');
+        const results = document.getElementById('sitelinkResults');
+        const btn = form.querySelector('button[type="submit"]');
+        
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Generálás...';
+        results.innerHTML = '<div class="loading-spinner">🔄 Sitelink extensionök generálása...</div>';
+        
+        try {
+            const fd = new FormData(form);
+            fd.append('action', 'generate_sitelinks');
+            fd.append('csrf_token', window.csrfToken || '');
+            
+            const resp = await fetch('api.php', { method: 'POST', body: fd });
+            results.innerHTML = await resp.text();
+            executeInlineScripts(results);
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">❌ Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '🔗 Sitelink-ek Generálása';
+    }
+    
+    function copySitelink(index) {
+        const card = document.querySelector(`[data-sitelink="${index}"]`);
+        if (!card) return;
+        
+        const text = card.querySelector('.sl-text')?.textContent || '';
+        const desc1 = card.querySelector('.sl-desc1')?.textContent || '';
+        const desc2 = card.querySelector('.sl-desc2')?.textContent || '';
+        const url = card.querySelector('.sl-url')?.textContent || '';
+        
+        const copyText = `Link szöveg: ${text}\nLeírás 1: ${desc1}\nLeírás 2: ${desc2}\nURL: ${url}`;
+        navigator.clipboard.writeText(copyText).then(() => alert('✅ Sitelink másolva!'));
+    }
+    
+    function copyAllSitelinks() {
+        const cards = document.querySelectorAll('[data-sitelink]');
+        let allText = '';
+        cards.forEach((card, i) => {
+            const text = card.querySelector('.sl-text')?.textContent || '';
+            const desc1 = card.querySelector('.sl-desc1')?.textContent || '';
+            const desc2 = card.querySelector('.sl-desc2')?.textContent || '';
+            const url = card.querySelector('.sl-url')?.textContent || '';
+            allText += `--- Sitelink ${i+1} ---\nLink szöveg: ${text}\nLeírás 1: ${desc1}\nLeírás 2: ${desc2}\nURL: ${url}\n\n`;
+        });
+        navigator.clipboard.writeText(allText).then(() => alert('✅ Összes sitelink másolva!'));
+    }
+    </script>
+
+<?php elseif ($tab === 'schema'): ?>
+<!-- ==================== SCHEMA.ORG GENERÁTOR TAB ==================== -->
+    <section class="page-section">
+        <div class="section-header">
+            <h2>📋 Schema.org Strukturált Adatok Generátor</h2>
+            <p class="section-subtitle">JSON-LD kódrészletek a Google rich snippet megjelenítéshez</p>
+        </div>
+        
+        <div class="tools-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+            <!-- Bal: Form -->
+            <div class="card">
+                <h3 class="card-title">🏢 Cég Adatok</h3>
+                <form id="schemaForm" onsubmit="return generateSchema(event)">
+                    <div class="form-group">
+                        <label>Cégnév *</label>
+                        <input type="text" name="business_name" class="form-control" required 
+                               placeholder="Példa Kft.">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Weboldal URL *</label>
+                        <input type="url" name="website_url" class="form-control" required 
+                               placeholder="https://pelda.hu">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Iparág / Tevékenység *</label>
+                        <select name="industry" class="form-control" required>
+                            <option value="">-- Válassz --</option>
+                            <?php foreach ($industries as $key => $ind): ?>
+                            <option value="<?= $key ?>"><?= $ind['name'] ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Telefonszám</label>
+                        <input type="tel" name="phone" class="form-control" 
+                               placeholder="+36 1 234 5678">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Cím</label>
+                        <input type="text" name="address" class="form-control" 
+                               placeholder="1234 Budapest, Példa utca 1.">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Nyitvatartás (opcionális)</label>
+                        <input type="text" name="opening_hours" class="form-control" 
+                               placeholder="H-P: 8:00-17:00, Szo: 9:00-13:00">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Szolgáltatási terület</label>
+                        <input type="text" name="service_area" class="form-control" 
+                               placeholder="Budapest és 30km körzetében">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Milyen Schema típusokat generáljon?</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="schema_types[]" value="LocalBusiness" checked>
+                                <span>🏢 LocalBusiness (helyi vállalkozás)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="schema_types[]" value="Service" checked>
+                                <span>🔧 Service (szolgáltatások)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="schema_types[]" value="FAQPage" checked>
+                                <span>❓ FAQPage (gyakori kérdések)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="schema_types[]" value="HowTo">
+                                <span>📝 HowTo (útmutató)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="schema_types[]" value="Review">
+                                <span>⭐ AggregateRating (értékelések)</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="schema_types[]" value="BreadcrumbList">
+                                <span>🍞 BreadcrumbList (navigáció)</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-lg" style="width:100%">
+                        📋 Schema Kódok Generálása
+                    </button>
+                </form>
+            </div>
+            
+            <!-- Jobb: Infó -->
+            <div>
+                <div class="card card-tips">
+                    <h3 class="card-title">🎯 Miért használj Schema.org-ot?</h3>
+                    <ul style="font-size:14px; line-height:1.8;">
+                        <li><strong>Rich Snippets</strong> — Csillagok, árak, FAQ a keresőben</li>
+                        <li><strong>Nagyobb CTR</strong> — Feltűnőbb találatok = több kattintás</li>
+                        <li><strong>Voice Search</strong> — A Google Assistant ezekből olvas fel</li>
+                        <li><strong>Knowledge Graph</strong> — Bekerülhetsz a Google tudásbázisába</li>
+                    </ul>
+                </div>
+                
+                <div class="card" style="margin-top:16px;">
+                    <h3 class="card-title">📊 Támogatott típusok</h3>
+                    <div style="font-size:13px;">
+                        <p><strong>LocalBusiness</strong> — Helyi cégek (cím, telefon, nyitvatartás)</p>
+                        <p><strong>Service</strong> — Szolgáltatás leírások árakkal</p>
+                        <p><strong>FAQPage</strong> — Kérdés-válasz (megjelenik a SERP-ben!)</p>
+                        <p><strong>HowTo</strong> — Lépésről lépésre útmutatók</p>
+                        <p><strong>AggregateRating</strong> — Összesített értékelés csillagokkal</p>
+                        <p><strong>BreadcrumbList</strong> — Navigációs útvonal</p>
+                    </div>
+                </div>
+                
+                <div class="card" style="margin-top:16px; background:#fef3c7; border-color:#fcd34d;">
+                    <h3 class="card-title">⚠️ Fontos</h3>
+                    <p style="font-size:13px;">
+                        A generált kódot a <code>&lt;head&gt;</code> vagy <code>&lt;body&gt;</code> végére kell beilleszteni.
+                        Ellenőrizd a <a href="https://search.google.com/test/rich-results" target="_blank">Google Rich Results Test</a>-tel!
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Eredmények -->
+        <div id="schemaResults" style="margin-top:24px;"></div>
+    </section>
+    
+    <script>
+    async function generateSchema(e) {
+        e.preventDefault();
+        const form = document.getElementById('schemaForm');
+        const results = document.getElementById('schemaResults');
+        const btn = form.querySelector('button[type="submit"]');
+        
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Generálás...';
+        results.innerHTML = '<div class="loading-spinner">🔄 Schema.org kódok generálása AI segítségével...</div>';
+        
+        try {
+            const fd = new FormData(form);
+            fd.append('action', 'generate_schema');
+            fd.append('csrf_token', window.csrfToken || '');
+            
+            const resp = await fetch('api.php', { method: 'POST', body: fd });
+            results.innerHTML = await resp.text();
+            executeInlineScripts(results);
+        } catch (err) {
+            results.innerHTML = '<div class="alert alert-error">❌ Hiba: ' + err.message + '</div>';
+        }
+        
+        btn.disabled = false;
+        btn.innerHTML = '📋 Schema Kódok Generálása';
+    }
+    
+    function copySchemaCode(id) {
+        const code = document.getElementById(id);
+        if (code) {
+            navigator.clipboard.writeText(code.textContent).then(() => {
+                alert('✅ Kód másolva a vágólapra!');
+            });
+        }
+    }
+    </script>
 
 <?php elseif ($tab === 'gads'): ?>
 <!-- ==================== GOOGLE ADS FIÓKOK TAB ==================== -->
@@ -2655,13 +3611,150 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         </div>
         
         <?php endif; ?>
+        
+        <!-- ===== Chrome Bővítmény Importok (mindig látható) ===== -->
+        <?php
+        $gadsImportFile = __DIR__ . '/data/gads_imports.json';
+        $gadsImports = [];
+        if (file_exists($gadsImportFile)) {
+            $gadsImports = json_decode(file_get_contents($gadsImportFile), true) ?: [];
+        }
+        // Ügyfelek a dropdown-hoz
+        $clientsForAssign = [];
+        if (class_exists('ClientManager')) {
+            $cmAssign = new ClientManager();
+            $clientsForAssign = $cmAssign->getClients();
+        }
+        ?>
+        
+        <div class="card" style="margin-top:20px;">
+            <div class="card-header">
+                <h3 class="card-title">📲 Chrome Bővítményből Leszívott Kampányok<?= !empty($gadsImports) ? ' ('.count($gadsImports).')' : '' ?></h3>
+            </div>
+            
+            <?php if (!empty($gadsImports)): ?>
+            <p class="help-text" style="margin-bottom:16px">
+                A Chrome bővítmény Google Ads felületéről szívta le ezeket. Rendeld ügyfélhez → a generátor automatikusan tanul belőle.
+            </p>
+            
+            <?php foreach (array_slice($gadsImports, 0, 10) as $ii => $gImport): ?>
+            <div style="background:var(--bg); border-radius:10px; padding:16px; margin-bottom:12px; border-left:3px solid var(--blue);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div>
+                        <strong><?= htmlspecialchars($gImport['campaign_name'] ?? $gImport['account_name'] ?? 'Import #'.($ii+1)) ?></strong>
+                        <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">
+                            <?= $gImport['date'] ?? $gImport['scraped_at'] ?? '' ?>
+                        </span>
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <span class="badge badge-blue"><?= count($gImport['ads'] ?? []) ?> hird.</span>
+                        <span class="badge"><?= count($gImport['keywords'] ?? []) ?> kw</span>
+                    </div>
+                </div>
+                
+                <?php if (!empty($gImport['ads'])): ?>
+                <div style="font-size:12px; color:var(--text-light); margin-bottom:8px;">
+                    <?php foreach (array_slice($gImport['ads'], 0, 2) as $gAd): ?>
+                    <div style="margin-bottom:4px;">
+                        📝 <?= htmlspecialchars(implode(' | ', array_slice($gAd['headlines'] ?? [], 0, 3))) ?>
+                    </div>
+                    <?php endforeach; ?>
+                    <?php if (count($gImport['ads']) > 2): ?>
+                    <span style="color:var(--text-muted)">+<?= count($gImport['ads']) - 2 ?> további</span>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                    <select class="form-control" id="assignClient_<?= $ii ?>" style="width:auto; min-width:180px; font-size:13px;">
+                        <option value="">-- Ügyfél kiválasztása --</option>
+                        <?php foreach ($clientsForAssign as $cAss): ?>
+                        <option value="<?= $cAss['id'] ?>"><?= htmlspecialchars($cAss['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button class="btn btn-sm btn-primary" onclick="assignGadsImportToClient(<?= $ii ?>)">
+                        💾 Ügyfélhez Rendelés
+                    </button>
+                </div>
+            </div>
+            <?php endforeach; ?>
+            
+            <?php if (count($gadsImports) > 10): ?>
+            <p class="help-text">Összesen <?= count($gadsImports) ?> import, az utolsó 10 megjelenítve.</p>
+            <?php endif; ?>
+            
+            <?php else: ?>
+            <div class="empty-state small">
+                <span class="empty-icon">📲</span>
+                <p>Nincs még import a Chrome bővítményből.</p>
+                <p class="help-text" style="margin-top:8px">
+                    Nyisd meg a Google Ads felületet → Chrome bővítmény → "📥 Scrape" → "📤 Küldés az AdMasternek"
+                </p>
+            </div>
+            <?php endif; ?>
+        </div>
     </section>
     
     <script>
+    // Chrome import ügyfélhez rendelés
+    function assignGadsImportToClient(importIndex) {
+        const select = document.getElementById('assignClient_' + importIndex);
+        const clientId = select ? select.value : '';
+        
+        if (!clientId) {
+            alert('❌ Válassz ügyfelet!');
+            return;
+        }
+        
+        // Importok betöltése
+        const imports = <?= json_encode($gadsImports) ?>;
+        const importData = imports[importIndex];
+        
+        if (!importData) {
+            alert('❌ Import nem található');
+            return;
+        }
+        
+        // Kampány adatok formázása
+        const campaignData = {
+            source: 'chrome_extension_import',
+            date: importData.date || importData.scraped_at || new Date().toISOString().slice(0,16).replace('T',' '),
+            campaign_name: importData.campaign_name || importData.account_name || '',
+            ads: (importData.ads || []).slice(0, 10).map(a => ({
+                headlines: a.headlines || [],
+                descriptions: a.descriptions || [],
+                type: a.type || 'RSA',
+                campaign: a.campaign || importData.campaign_name || '',
+                ad_group: a.ad_group || '',
+                metrics: a.metrics || {}
+            })),
+            keywords: (importData.keywords || []).slice(0, 30).map(k => ({
+                text: k.text || k,
+                match_type: k.match_type || k.matchType || 'BROAD',
+                quality_score: k.quality_score || null,
+                metrics: k.metrics || {}
+            }))
+        };
+        
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=save_current_campaign&client_id=${encodeURIComponent(clientId)}&campaign_data=${encodeURIComponent(JSON.stringify(campaignData))}&csrf_token=${encodeURIComponent(getCsrfToken())}`
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.message + '\n\nA generálásnál automatikusan felhasználja ezeket az adatokat.');
+                select.closest('div[style]').style.borderLeftColor = '#16a34a';
+            } else {
+                alert('❌ ' + (data.error || 'Hiba'));
+            }
+        })
+        .catch(err => alert('❌ ' + err.message));
+    }
+    
     async function syncGadsAccounts() {
         const btn = document.getElementById('syncAccountsBtn');
-        btn.disabled = true;
-        btn.innerHTML = '⏳ Szinkronizálás...';
         
         try {
             const resp = await fetch('api.php', {
@@ -2752,6 +3845,15 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             </div>`;
         });
         adsHtml += '</div>';
+        
+        // Mentés ügyfélhez gomb
+        adsHtml += `<div style="margin-top:16px; padding:16px; background:var(--bg); border-radius:10px; text-align:center;">
+            <button class="btn btn-primary" onclick='saveGadsToClient(${JSON.stringify(data.data)})'>
+                💾 Jelenlegi kampány mentése ügyfélhez
+            </button>
+            <p class="help-text" style="margin-top:8px">A generátor felhasználja mint kiindulás: "csináld jobbat de hasonló stílusban"</p>
+        </div>`;
+        
         document.getElementById('adsList').innerHTML = adsHtml;
         
         // Kulcsszavak
@@ -2776,6 +3878,71 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
     
     function viewAccountDetails(customerId) {
         syncFullAccount(customerId);
+    }
+    
+    // Google Ads kampány adatok mentése ügyfélhez
+    function saveGadsToClient(gadsData) {
+        const clients = <?php 
+        $allCForGads = [];
+        if (class_exists('ClientManager')) {
+            $cmG = new ClientManager();
+            $allCForGads = $cmG->getClients();
+        }
+        echo json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], array_values($allCForGads)));
+        ?>;
+        
+        if (clients.length === 0) {
+            alert('❌ Nincs mentett ügyfél! Először hozz létre egyet az Ügyfelek fülön.');
+            return;
+        }
+        
+        let msg = 'Melyik ügyfélhez mentsem a kampányadatokat?\n\n';
+        clients.forEach((c, i) => { msg += `${i+1}. ${c.name}\n`; });
+        msg += '\nÍrd be a sorszámot:';
+        
+        const choice = prompt(msg);
+        if (!choice) return;
+        
+        const idx = parseInt(choice) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= clients.length) {
+            alert('❌ Érvénytelen választás');
+            return;
+        }
+        
+        // Kampány adatok összegyűjtése
+        const campaignData = {
+            source: 'google_ads_api',
+            date: new Date().toISOString().slice(0,16).replace('T',' '),
+            campaigns: (gadsData.campaigns || []).map(c => ({
+                name: c.name, type: c.type, status: c.status,
+                budget: c.daily_budget,
+                metrics: c.metrics || {}
+            })),
+            ads: (gadsData.ads || []).slice(0, 10).map(a => ({
+                headlines: a.headlines || [],
+                descriptions: a.descriptions || [],
+                type: a.type, campaign: a.campaign_name,
+                ad_group: a.ad_group_name,
+                metrics: a.metrics || {}
+            })),
+            keywords: (gadsData.keywords || []).slice(0, 30).map(k => ({
+                text: k.text, match_type: k.match_type,
+                quality_score: k.quality_score,
+                metrics: k.metrics || {}
+            }))
+        };
+        
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=save_current_campaign&client_id=${encodeURIComponent(clients[idx].id)}&campaign_data=${encodeURIComponent(JSON.stringify(campaignData))}&csrf_token=${encodeURIComponent(getCsrfToken())}`
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) alert('✅ ' + data.message);
+            else alert('❌ ' + (data.error || 'Hiba'));
+        })
+        .catch(err => alert('❌ ' + err.message));
     }
     </script>
 
@@ -2869,7 +4036,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         <div class="container">
             <span><?= APP_NAME ?> v<?= APP_VERSION ?></span>
             <span>
-                <?php if (DEMO_MODE): ?>Demo Mód<?php else: ?>
+                <?php if (Settings::isDemoMode()): ?>Demo Mód<?php else: ?>
                 <span class="status-dot <?= $api_key_valid ? 'green' : 'red' ?>"></span>
                 API: <?= $api_key_valid ? 'OK' : 'Nincs' ?>
                 <?php endif; ?>
@@ -2890,11 +4057,25 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
     
     // Modal kezelés
     function showModal(id) {
-        document.getElementById(id).classList.add('show');
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('hidden');
+        el.classList.add('show');
     }
     function hideModal(id) {
-        document.getElementById(id).classList.remove('show');
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('show');
+        el.classList.add('hidden');
     }
+    
+    // Overlay-re kattintva bezárul a modal
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('modal-overlay') && !e.target.classList.contains('hidden')) {
+            e.target.classList.remove('show');
+            e.target.classList.add('hidden');
+        }
+    });
     
     // Mentés ügyfélhez modal
     function showSaveToClientModal() {
@@ -3056,7 +4237,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             fetch('api.php', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'action=delete_client&id=' + id
+                body: 'action=delete_client&id=' + id + '&csrf_token=' + encodeURIComponent(getCsrfToken())
             }).then(() => location.reload());
         }
     }
@@ -3067,7 +4248,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             fetch('api.php', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'action=delete_headline&id=' + id
+                body: 'action=delete_headline&id=' + id + '&csrf_token=' + encodeURIComponent(getCsrfToken())
             }).then(() => location.reload());
         }
     }
@@ -3091,6 +4272,10 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         try {
             const resp = await fetch('api.php', { method: 'POST', body: new FormData(this) });
             results.innerHTML = await resp.text();
+            
+            // AJAX-szal betöltött script tagek végrehajtása
+            executeInlineScripts(results);
+            
             results.scrollIntoView({ behavior: 'smooth' });
         } catch (err) {
             results.innerHTML = '<div class="alert alert-error">Hiba: ' + err.message + '</div>';
@@ -3150,7 +4335,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             fetch('api.php', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: `action=delete_keyword&id=${id}&type=${type}`
+                body: `action=delete_keyword&id=${id}&type=${type}&csrf_token=${encodeURIComponent(getCsrfToken())}`
             }).then(() => location.reload());
         }
     }
@@ -3217,6 +4402,102 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             btn.disabled = false;
         });
     });
+    
+    // Chrome Spy scan elemzés - beilleszti a manuális formba és submitolja
+    function analyzeSpyScan(btnEl, query, totalAds) {
+        // Spy scan adataiból szöveges formátum
+        const scanItem = btnEl.closest('.spy-scan-item');
+        const adCards = scanItem.querySelectorAll('div[style*="border-left"]');
+        let adText = '';
+        adCards.forEach((card, i) => {
+            const headline = card.querySelector('div[style*="font-weight:600"]')?.textContent?.trim() || '';
+            const desc = card.querySelector('div[style*="color:var(--text-light)"]')?.textContent?.trim() || '';
+            const url = card.querySelector('div[style*="color:#006621"]')?.textContent?.trim() || '';
+            adText += `Hirdetés ${i+1}:\n${headline}\n${url}\n${desc}\n\n`;
+        });
+        
+        // Beillesztés a manuális formba
+        const manualForm = document.getElementById('manualCompetitorForm');
+        if (manualForm) {
+            manualForm.querySelector('textarea[name="competitor_ads"]').value = adText.trim();
+            manualForm.scrollIntoView({ behavior: 'smooth' });
+            
+            // Auto-submit
+            const submitBtn = manualForm.querySelector('button[type="submit"]');
+            submitBtn.click();
+        }
+    }
+    
+    // Spy scan adatok másolása
+    function copySpyScan(btnEl) {
+        try {
+            const ads = JSON.parse(btnEl.dataset.ads || '[]');
+            let text = '';
+            ads.forEach((ad, i) => {
+                text += `--- Hirdetés #${i+1} ---\n`;
+                if (ad.headline) text += `Headline: ${ad.headline}\n`;
+                if (ad.displayUrl) text += `URL: ${ad.displayUrl}\n`;
+                if (ad.description) text += `Leírás: ${ad.description}\n`;
+                if (ad.sitelinks?.length) text += `Sitelinks: ${ad.sitelinks.join(' | ')}\n`;
+                text += '\n';
+            });
+            navigator.clipboard.writeText(text.trim()).then(() => {
+                const orig = btnEl.textContent;
+                btnEl.textContent = '✅ Másolva!';
+                setTimeout(() => btnEl.textContent = orig, 1500);
+            });
+        } catch (e) {
+            alert('Hiba a másolásnál: ' + e.message);
+        }
+    }
+    
+    // Versenytárs elemzés mentése ügyfélhez
+    function saveCompetitorToClient(analysisData) {
+        // Ügyfél választó - felugró prompt
+        <?php
+        $allClientsForJs = [];
+        if (class_exists('ClientManager')) {
+            $cmJs = new ClientManager();
+            $allClientsForJs = $cmJs->getClients();
+        }
+        ?>
+        const clients = <?= json_encode(array_map(fn($c) => ['id' => $c['id'], 'name' => $c['name']], array_values($allClientsForJs))) ?>;
+        
+        if (clients.length === 0) {
+            alert('❌ Nincs mentett ügyfél! Először hozz létre egyet az Ügyfelek fülön.');
+            return;
+        }
+        
+        let msg = 'Melyik ügyfélhez mentsem?\n\n';
+        clients.forEach((c, i) => { msg += `${i+1}. ${c.name}\n`; });
+        msg += '\nÍrd be a sorszámot:';
+        
+        const choice = prompt(msg);
+        if (!choice) return;
+        
+        const idx = parseInt(choice) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= clients.length) {
+            alert('❌ Érvénytelen választás');
+            return;
+        }
+        
+        const clientId = clients[idx].id;
+        
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=save_competitor_to_client&client_id=${encodeURIComponent(clientId)}&analysis=${encodeURIComponent(JSON.stringify(analysisData))}&csrf_token=${encodeURIComponent(getCsrfToken())}`
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.message);
+            } else {
+                alert('❌ ' + (data.error || 'Hiba'));
+            }
+        })
+        .catch(err => alert('❌ Hálózati hiba: ' + err.message));
+    }
     
     // Landing Page elemzés
     document.getElementById('landingForm')?.addEventListener('submit', async function(e) {
@@ -3287,16 +4568,6 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
     });
     
     // Iparág törlése
-    function deleteIndustry(key) {
-        if (confirm('Biztosan törlöd ezt az iparágat?')) {
-            fetch('api.php', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'action=delete_industry&key=' + key
-            }).then(() => location.reload());
-        }
-    }
-    
     // Iparág megtekintése
     function viewIndustry(key) {
         alert('Részletek: ' + key + '\n\nEz a funkció hamarosan elérhető lesz!');
@@ -3880,6 +5151,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
     // ========================================
     class RSAPreview {
         constructor(containerId) {
+            this.containerId = containerId;
             this.container = document.getElementById(containerId);
             this.headlines = [];
             this.descriptions = [];
@@ -3888,6 +5160,12 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             this.path2 = '';
             this.isPlaying = false;
             this.interval = null;
+        }
+        
+        getContainer() {
+            // Mindig újra keressük a containert (AJAX után létrejöhet)
+            this.container = document.getElementById(this.containerId);
+            return this.container;
         }
         
         setData(headlines, descriptions, url, path1 = '', path2 = '') {
@@ -3910,7 +5188,8 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         }
         
         render(view = 'desktop') {
-            if (!this.container) return;
+            const container = this.getContainer();
+            if (!container) return;
             
             const hs = this.getRandomHeadlines(3);
             const ds = this.getRandomDescriptions(2);
@@ -3919,7 +5198,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             
             const isMobile = view === 'mobile';
             
-            this.container.innerHTML = `
+            container.innerHTML = `
                 <div class="rsa-preview ${isMobile ? 'rsa-mobile' : 'rsa-desktop'}">
                     <div class="rsa-header">
                         <div class="rsa-view-toggle">
@@ -3968,7 +5247,13 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
     // ========================================
     class AdStrengthMeter {
         constructor(containerId) {
+            this.containerId = containerId;
             this.container = document.getElementById(containerId);
+        }
+        
+        getContainer() {
+            this.container = document.getElementById(this.containerId);
+            return this.container;
         }
         
         calculate(headlines, descriptions, keywords = []) {
@@ -4021,7 +5306,8 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         }
         
         render(headlines, descriptions, keywords = []) {
-            if (!this.container) return;
+            const container = this.getContainer();
+            if (!container) return;
             
             const { score, issues, positives } = this.calculate(headlines, descriptions, keywords);
             
@@ -4031,7 +5317,7 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
             else if (score >= 40) { label = 'Közepes'; colorClass = 'strength-average'; }
             else { label = 'Gyenge'; colorClass = 'strength-poor'; }
             
-            this.container.innerHTML = `
+            container.innerHTML = `
                 <div class="ad-strength-meter ${colorClass}">
                     <div class="strength-header">
                         <span class="strength-label">Hirdetés Ereje:</span>
@@ -4386,8 +5672,234 @@ define('GOOGLE_ADS_LOGIN_CUSTOMER_ID', 'xxx'); // MCC fiók ID (opcionális)
         if (e.key === 'Escape') {
             document.getElementById('mobileMenu')?.classList.remove('open');
             document.body.style.overflow = '';
+            // Modalok bezárása Escape-re
+            document.querySelectorAll('.modal-overlay.show').forEach(m => {
+                m.classList.remove('show');
+                m.classList.add('hidden');
+            });
         }
     });
+    
+    // Overlay kattintás = bezárás
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.classList.remove('show');
+                overlay.classList.add('hidden');
+            }
+        });
+    });
+    
+    // ========================================
+    // AJAX MODAL FORM SUBMITOK
+    // ========================================
+    
+    // AJAX-szal betöltött HTML-ben lévő script tagek végrehajtása
+    // Az innerHTML-be beillesztett <script> tagek nem futnak le automatikusan
+    function executeInlineScripts(container) {
+        const scripts = container.querySelectorAll('script');
+        scripts.forEach(oldScript => {
+            const newScript = document.createElement('script');
+            // Attribútumok másolása (src, type stb.)
+            Array.from(oldScript.attributes).forEach(attr => {
+                newScript.setAttribute(attr.name, attr.value);
+            });
+            // Tartalom másolása
+            newScript.textContent = oldScript.textContent;
+            // Régi script cseréje az újra (ez triggereli a végrehajtást)
+            oldScript.parentNode.replaceChild(newScript, oldScript);
+        });
+    }
+    
+    // CSRF token lekérés
+    function getCsrfToken() {
+        return window.csrfToken || '';
+    }
+    
+    // Új ügyfél mentése (AJAX)
+    function submitNewClient(e) {
+        e.preventDefault();
+        const form = document.getElementById('newClientForm');
+        const fd = new FormData(form);
+        fd.append('action', 'save_client');
+        fd.append('csrf_token', getCsrfToken());
+        
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = '⏳ Mentés...';
+        
+        fetch('api.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    hideModal('newClientModal');
+                    form.reset();
+                    location.reload();
+                } else {
+                    alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+                }
+            })
+            .catch(err => alert('❌ Hálózati hiba: ' + err.message))
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '💾 Mentés';
+            });
+        return false;
+    }
+    
+    // Ügyfél szerkesztés - modal megnyitás adatokkal
+    function editClient(btn) {
+        document.getElementById('editClientId').value = btn.dataset.id || '';
+        document.getElementById('editClientName').value = btn.dataset.name || '';
+        document.getElementById('editClientIndustry').value = btn.dataset.industry || '';
+        document.getElementById('editClientPhone').value = btn.dataset.phone || '';
+        document.getElementById('editClientArea').value = btn.dataset.area || 'budapest';
+        document.getElementById('editClientWebsite').value = btn.dataset.website || '';
+        
+        showModal('editClientModal');
+    }
+    
+    // Ügyfél szerkesztés mentése (AJAX)
+    function submitEditClient(e) {
+        e.preventDefault();
+        const form = document.getElementById('editClientForm');
+        const fd = new FormData(form);
+        fd.append('action', 'save_client');
+        fd.append('csrf_token', getCsrfToken());
+        
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = '⏳ Mentés...';
+        
+        fetch('api.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    hideModal('editClientModal');
+                    location.reload();
+                } else {
+                    alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+                }
+            })
+            .catch(err => alert('❌ Hálózati hiba: ' + err.message))
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '💾 Mentés';
+            });
+        return false;
+    }
+    
+    // Új szöveg mentése (AJAX)
+    function submitNewHeadline(e) {
+        e.preventDefault();
+        const form = document.getElementById('newHeadlineForm');
+        const fd = new FormData(form);
+        fd.append('action', 'save_headline');
+        fd.append('csrf_token', getCsrfToken());
+        
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = '⏳ Mentés...';
+        
+        fetch('api.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    hideModal('newHeadlineModal');
+                    form.reset();
+                    location.reload();
+                } else {
+                    alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+                }
+            })
+            .catch(err => alert('❌ Hálózati hiba: ' + err.message))
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '💾 Mentés';
+            });
+        return false;
+    }
+    
+    // Új iparág generálása (AJAX)
+    function submitNewIndustry(e) {
+        e.preventDefault();
+        const form = document.getElementById('newIndustryForm');
+        const fd = new FormData(form);
+        fd.append('action', 'generate_industry');
+        fd.append('csrf_token', getCsrfToken());
+        
+        const btn = document.getElementById('generateIndustryBtn');
+        btn.disabled = true;
+        btn.textContent = '🧠 Generálás folyamatban...';
+        
+        fetch('api.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    hideModal('newIndustryModal');
+                    form.reset();
+                    alert('✅ Iparág létrehozva: ' + (data.name || ''));
+                    location.reload();
+                } else {
+                    alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+                }
+            })
+            .catch(err => alert('❌ Hálózati hiba: ' + err.message))
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '🧠 Generálás AI-val';
+            });
+        return false;
+    }
+    
+    // Kulcsszó form mentés (AJAX)
+    function submitKeywordForm(form, e) {
+        e.preventDefault();
+        const fd = new FormData(form);
+        fd.append('csrf_token', getCsrfToken());
+        
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = '⏳ Mentés...';
+        
+        fetch('api.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('❌ Hiba: ' + (data.error || 'Ismeretlen hiba'));
+                }
+            })
+            .catch(err => alert('❌ Hálózati hiba: ' + err.message))
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '💾 Mentés';
+            });
+        return false;
+    }
+    
+    // Description törlése
+    function deleteDescription(id) {
+        if (confirm('Törlöd ezt a description-t?')) {
+            fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=delete_headline&id=' + id + '&type=description&csrf_token=' + encodeURIComponent(getCsrfToken())
+            }).then(() => location.reload());
+        }
+    }
+    
+    // Iparág törlése
+    function deleteIndustry(key) {
+        if (confirm('Biztosan törlöd ezt az iparágat?')) {
+            fetch('api.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=delete_industry&id=' + encodeURIComponent(key) + '&csrf_token=' + encodeURIComponent(getCsrfToken())
+            }).then(() => location.reload());
+        }
+    }
     </script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 /**
- * AdMaster Pro v2.0 - Frontend JavaScript
+ * AdMaster Pro v6.0 - Frontend JavaScript
  */
 
 document.addEventListener('DOMContentLoaded', function() {

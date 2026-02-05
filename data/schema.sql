@@ -159,16 +159,17 @@ CREATE TABLE IF NOT EXISTS chat_history (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Index-ek
-CREATE INDEX idx_clients_industry ON clients(industry);
-CREATE INDEX idx_campaigns_client ON campaigns(client_id);
-CREATE INDEX idx_keywords_industry ON keywords(industry);
-CREATE INDEX idx_keyword_bank_industry ON keyword_bank(industry);
-CREATE INDEX idx_headline_bank_industry ON headline_bank(industry);
-CREATE INDEX idx_chat_session ON chat_history(session_id);
+-- Index-ek létrehozása PHP-ből történik (install.php)
+-- mert a CREATE INDEX nem támogatja az IF NOT EXISTS-t MySQL 5.7-ben
 
--- Alapértelmezett beállítások
+-- Alapértelmezett beállítások (v6.1.0)
+-- API kulcsok és dinamikus beállítások mind itt tárolódnak
 INSERT INTO settings (setting_key, setting_value) VALUES 
-    ('db_version', '5.0.0'),
-    ('app_installed', NOW())
+    ('db_version', '6.1.0'),
+    ('app_installed', NOW()),
+    ('require_login', '1'),
+    ('demo_mode', '0'),
+    ('session_lifetime', '3600'),
+    ('rate_limit_requests', '30'),
+    ('rate_limit_window', '3600')
 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);

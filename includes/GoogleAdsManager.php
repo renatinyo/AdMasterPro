@@ -21,11 +21,11 @@ class GoogleAdsManager {
     private ?string $loginCustomerId = null; // MCC fiók ID
     
     public function __construct() {
-        $this->developerToken = defined('GOOGLE_ADS_DEVELOPER_TOKEN') ? GOOGLE_ADS_DEVELOPER_TOKEN : '';
-        $this->clientId = defined('GOOGLE_ADS_CLIENT_ID') ? GOOGLE_ADS_CLIENT_ID : '';
-        $this->clientSecret = defined('GOOGLE_ADS_CLIENT_SECRET') ? GOOGLE_ADS_CLIENT_SECRET : '';
-        $this->refreshToken = defined('GOOGLE_ADS_REFRESH_TOKEN') ? GOOGLE_ADS_REFRESH_TOKEN : '';
-        $this->loginCustomerId = defined('GOOGLE_ADS_LOGIN_CUSTOMER_ID') ? GOOGLE_ADS_LOGIN_CUSTOMER_ID : null;
+        $this->developerToken = Settings::googleAdsDeveloperToken();
+        $this->clientId = Settings::googleAdsClientId();
+        $this->clientSecret = Settings::googleAdsClientSecret();
+        $this->refreshToken = Settings::googleAdsRefreshToken();
+        $this->loginCustomerId = Settings::googleAdsLoginCustomerId() ?: null;
     }
     
     /**

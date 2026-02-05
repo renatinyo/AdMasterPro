@@ -5,10 +5,11 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Security.php';
+require_once __DIR__ . '/includes/Database.php';
+require_once __DIR__ . '/includes/Settings.php';
 
 Security::initSession();
-
-// Ha már be van jelentkezve, redirect
+Database::connect();// Ha már be van jelentkezve, redirect
 if (Security::isLoggedIn()) {
     header('Location: index.php');
     exit;

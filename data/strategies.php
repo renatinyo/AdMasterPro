@@ -94,6 +94,62 @@ $GLOBALS['extra_headlines'] = [
     ]
 ];
 
+// =========================================
+// AI INSTRUKCIÓK HANGNEMHEZ
+// =========================================
+$GLOBALS['tone_instructions'] = [
+    'aggressive' => [
+        'name' => '🔥 Agresszív / Sürgős',
+        'ai_instruction' => 'Használj rövid, ütős, parancsoló mondatokat! Fókuszálj a SÜRGŐSSÉGRE és a félelemre (mi történik ha NEM cselekszel MOST). Használj felszólító módot ("Hívj!", "Ne várj!"). Építsd be a FOMO-t (Fear of Missing Out). Maximum 1 felkiáltójel mondatonként, de legyen energikus.',
+        'power_words' => ['Most', 'Azonnal', 'SOS', 'Vészhelyzet', 'Ne Várj', 'Ma', 'Sürgős', 'Gyors'],
+        'avoid' => ['Kérjük', 'Szívesen', 'Lehetőség', 'Esetleg', 'Talán'],
+    ],
+    'trust' => [
+        'name' => '🏆 Bizalomépítő / Szakmai',
+        'ai_instruction' => 'Legyél megnyugtató, higgadt és szakmai! Emeld ki a GARANCIÁT, TAPASZTALATOT és BIZTONSÁGOT. Használj számokat és konkrétumokat ("15 év", "4200+ ügyfél"). Kerüld a hatásvadász szavakat. A cél: az olvasó érezze, hogy profi kezekben van.',
+        'power_words' => ['Garancia', 'Tapasztalat', 'Szakértő', 'Megbízható', 'Hivatalos', 'Bevizsgált', 'Minősített'],
+        'avoid' => ['Brutális', 'Elképesztő', 'Szenzációs', 'WOW', 'Hihetetlen'],
+    ],
+    'price' => [
+        'name' => '💰 Árkommunikáció / Értékajánlat',
+        'ai_instruction' => 'Fókuszálj az ÁR-ÉRTÉK arányra! Kommunikáld a FIX árakat, INGYENES elemeket, az ÁTLÁTHATÓSÁGOT. Használd az ár-horgonyzás technikáját: "Egy profi javítás most X Ft - egy DIY hiba javítása 10x ennyi". Legyen konkrét: számok, Ft összegek.',
+        'power_words' => ['Fix ár', 'Ingyenes', '0 Ft', 'Átlátható', 'Rejtett költség nélkül', 'Számla', 'Akár'],
+        'avoid' => ['Olcsó', 'Filléres', 'Potom', 'Legolcsóbb'],
+    ],
+    'emotional' => [
+        'name' => '❤️ Érzelmi / Empatikus',
+        'ai_instruction' => 'Mutass EMPÁTIÁT! Az olvasó stresszes helyzetben van (dugulás, csőtörés, kizárta magát). Először ismerd el a problémáját, aztán adj megoldást. "Tudjuk milyen stresszes..." → "Mi megoldjuk". Használj személyes hangnemet, mintha egy barátod segítene.',
+        'power_words' => ['Megértjük', 'Segítünk', 'Nem vagy egyedül', 'Ránk számíthatsz', 'Nyugodj meg'],
+        'avoid' => ['Pánikolj', 'Félj', 'Baj van', 'Katasztrófa'],
+    ],
+];
+
+// =========================================
+// MARKETING KERETRENDSZEREK
+// =========================================
+$GLOBALS['copywriting_frameworks'] = [
+    'PAS' => [
+        'name' => 'PAS (Problem-Agitation-Solution)',
+        'instruction' => 'Struktúra: 1) Nevezd meg a PROBLÉMÁT röviden, 2) NAGYÍTSD FEL a fájdalmat (mi lesz ha nem oldja meg), 3) Kínáld a MEGOLDÁST mint a legkézenfekvőbb választást.',
+        'example' => 'Dugult a lefolyó? Ha most nem oldod meg, holnap már a szomszédnál is megjelenik a víz. Hívj minket: 30 perc, garancia.',
+    ],
+    'FAB' => [
+        'name' => 'FAB (Features-Advantages-Benefits)',
+        'instruction' => 'Ne a FUNKCIÓT írd le, hanem azt, hogy az ÜGYFÉLNEK mit jelent. "Gépi tisztítás" helyett → "Bontás nélküli, tiszta munka - nem kell festeni utána".',
+        'example' => 'Kamerás csőátvizsgálás → pontosan látjuk hol a baj → nem bontjuk feleslegesen a falat.',
+    ],
+    'AIDA' => [
+        'name' => 'AIDA (Attention-Interest-Desire-Action)',
+        'instruction' => '1) RAGADD meg a figyelmet meglepő kijelentéssel, 2) Kelts ÉRDEKLŐDÉST konkrétummal, 3) Kelts VÁGYAT az eredmény bemutatásával, 4) CSELEKVÉSRE szólíts.',
+        'example' => 'A szomszédod is minket hívott (A). 15 év tapasztalat, 4200+ javítás (I). Ma este szabadon folyik a víz (D). Hívj most! (A)',
+    ],
+    'Before_After_Bridge' => [
+        'name' => 'Before-After-Bridge',
+        'instruction' => 'ELŐTTE: Ábrázold a jelenlegi fájdalmat. UTÁNA: Mutasd az ideális állapotot. HÍD: A te szolgáltatásod köti össze a kettőt.',
+        'example' => 'Büdös víz, lassú lefolyó (Előtte) → Tiszta, szagmentes, gyorsan lefolyik (Utána) → Egy telefonhívás kell hozzá (Híd)',
+    ],
+];
+
 // Stratégiai javaslatok
 $GLOBALS['strategies'] = [
     'top_of_page' => [
